@@ -699,6 +699,7 @@ public class LitematicDownloaderScreen extends Screen {
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
+    @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (showServerDropdown) {
             return false;
@@ -722,6 +723,7 @@ public class LitematicDownloaderScreen extends Screen {
         return false;
     }
 
+    @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (showServerDropdown) {
             return false;

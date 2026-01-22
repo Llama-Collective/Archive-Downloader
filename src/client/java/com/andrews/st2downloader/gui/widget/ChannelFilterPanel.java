@@ -181,6 +181,7 @@ public class ChannelFilterPanel implements Drawable, Element {
         }
     }
 
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button != 0) return false;
         if (mouseX < x || mouseX >= x + width || mouseY < y || mouseY >= y + height) {
@@ -232,6 +233,7 @@ public class ChannelFilterPanel implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height) {
             scrollOffset = Math.max(0, Math.min(scrollOffset - verticalAmount * 12, Math.max(0, contentHeight - height)));
@@ -242,6 +244,7 @@ public class ChannelFilterPanel implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (scrollBar.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
             scrollOffset = scrollBar.getScrollPercentage() * Math.max(0, contentHeight - height);
@@ -251,6 +254,7 @@ public class ChannelFilterPanel implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         scrollBar.mouseReleased(mouseX, mouseY, button);
         updateHover(mouseX, mouseY);

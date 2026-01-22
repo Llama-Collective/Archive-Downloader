@@ -687,6 +687,7 @@ public class PostDetailPanel implements Drawable, Element {
         }
     }
 
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (imageController.hasImageViewerOpen()) {
             return imageController.mouseClicked(mouseX, mouseY, button);
@@ -788,6 +789,7 @@ public class PostDetailPanel implements Drawable, Element {
         }
     }
 
+    @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (scrollBar != null
                 && (scrollBar.isDragging() || scrollBar.mouseDragged(mouseX, mouseY, button, deltaX, deltaY))) {
@@ -798,6 +800,7 @@ public class PostDetailPanel implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (imageController.hasImageViewerOpen()) {
             return imageController.mouseReleased(mouseX, mouseY, button);
@@ -809,6 +812,7 @@ public class PostDetailPanel implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (imageController.hasImageViewerOpen()) {
             return true;

@@ -220,6 +220,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 		}
 	}
 
+	@Override
 	public boolean mouseClicked(double mouseX, double mouseY, int button) {
 		if (mouseX < x || mouseX > x + POPUP_WIDTH || mouseY < y || mouseY > y + popupHeight) {
 			onCancel.run();
@@ -241,6 +242,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 		return true;
 	}
 
+	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
 		if (scrollBar != null) {
 			int messageAreaY = y + UITheme.Dimensions.PADDING + UITheme.Typography.LINE_HEIGHT + UITheme.Dimensions.PADDING;

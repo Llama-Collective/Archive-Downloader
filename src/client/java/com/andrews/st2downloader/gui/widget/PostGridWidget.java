@@ -499,6 +499,7 @@ public class PostGridWidget implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (blocked) return false;
         if (mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height) {
@@ -517,6 +518,7 @@ public class PostGridWidget implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         if (blocked) return false;
         if (scrollBar.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
@@ -528,13 +530,16 @@ public class PostGridWidget implements Drawable, Element {
         return false;
     }
 
+    @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         scrollBar.mouseReleased(mouseX, mouseY, button);
         return false;
     }
 
+    @Override
     public void setFocused(boolean focused) {}
 
+    @Override
     public boolean isFocused() {
         return false;
     }
