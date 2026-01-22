@@ -181,11 +181,12 @@ public class ScrollBar implements Drawable {
     
     public boolean mouseDragged(Click click, double offsetX, double offsetY) {
         if (!isDragging) return false;
-
-        double deltaYMouse = click.y() - dragStartY;
-        double deltaScroll = deltaYMouse / getMaxHandleY();
-
-        setScrollPercentage(dragStartScroll + deltaScroll);
+        double mouseY = click.y();
+        double maxHandleY = getMaxHandleY();
+        double deltaYMouse = mouseY - dragStartY;
+        double deltaScroll = deltaYMouse / maxHandleY;
+        double newPercentage = Math.max(0.0, Math.min(1.0, dragStartScroll + deltaScroll));
+        scrollPercentage = newPercentage;   
         return true;
     }
 
