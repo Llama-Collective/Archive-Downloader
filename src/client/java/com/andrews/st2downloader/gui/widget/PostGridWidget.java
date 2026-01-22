@@ -22,10 +22,10 @@ import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Drawable;
 import net.minecraft.client.gui.Element;
-import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.util.Identifier;
@@ -229,7 +229,7 @@ public class PostGridWidget implements Drawable, Element {
             RenderUtil.fillRect(context, imgX, imgY, imgX + imgW, imgY + IMAGE_HEIGHT, UITheme.Colors.CONTAINER_BG);
             RenderUtil.blit(
                 context,
-                RenderLayer::getGuiTextured,
+                RenderPipelines.GUI_TEXTURED,
                 tex,
                 drawX,
                 drawY,

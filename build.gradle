@@ -57,8 +57,8 @@ dependencies {
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
 	// Malilib and Litematica, optional
-	modImplementation "fi.dy.masa.malilib:malilib-fabric-${project.minecraft_version}:${project.malilib_version}"
-	modImplementation "fi.dy.masa.litematica:litematica-fabric-${project.minecraft_version}:${project.litematica_version}"
+	modImplementation "fi.dy.masa.malilib:malilib-fabric-${project.masa_mc_version}:${project.malilib_version}"
+	modImplementation "fi.dy.masa.litematica:litematica-fabric-${project.masa_mc_version}:${project.litematica_version}"
 
 	implementation 'com.google.code.gson:gson:2.10.1'
 }

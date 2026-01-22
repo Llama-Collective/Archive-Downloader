@@ -1,8 +1,8 @@
 package com.andrews.st2downloader.gui.widget;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderLayer;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
@@ -157,7 +157,7 @@ public class ImageViewerWidget {
         if (imageTexture != null) {
             RenderUtil.blit(
                 context,
-                RenderLayer::getGuiTextured,
+                RenderPipelines.GUI_TEXTURED,
                 imageTexture,
                 imageX, imageY,
                 0, 0,

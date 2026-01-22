@@ -1,6 +1,5 @@
 package com.andrews.st2downloader.util;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import net.fabricmc.loader.api.FabricLoader;

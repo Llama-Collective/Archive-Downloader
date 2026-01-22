@@ -1,11 +1,12 @@
 package com.andrews.st2downloader.util;
 
-import java.util.function.Function;
+import org.joml.Matrix3x2fStack;
+
+import com.mojang.blaze3d.pipeline.RenderPipeline;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderLayer;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
@@ -39,7 +40,7 @@ public final class RenderUtil {
         context.drawText(font, text, centerX - font.getWidth(text) / 2, y, color, false);
     }
 
-    public static void blit(DrawContext context, Function<Identifier, RenderLayer> pipeline, Identifier texture, int x, int y, int u, int v, int width, int height, int texWidth, int texHeight) {
+    public static void blit(DrawContext context, RenderPipeline pipeline, Identifier texture, int x, int y, int u, int v, int width, int height, int texWidth, int texHeight) {
         context.drawTexture(pipeline, texture, x, y, u, v, width, height, texWidth, texHeight);
     }
 
@@ -48,11 +49,11 @@ public final class RenderUtil {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null) return;
         TextRenderer font = client.textRenderer;
-        context.getMatrices().push();
-        context.getMatrices().translate(x, y, 0);
-        context.getMatrices().scale(scale, scale, 1);
+        Matrix3x2fStack matrix = context.getMatrices().pushMatrix();
+        context.getMatrices().translate(x, y, matrix);
+        context.getMatrices().scale(scale, scale, matrix);
         context.drawText(font, text, 0, 0, color, false);
-        context.getMatrices().pop();
+        context.getMatrices().popMatrix();
     }
 
     public static void drawScaledString(DrawContext context, String text, int x, int y, int color, float scale, int maxWidth) {
