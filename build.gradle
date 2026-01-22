@@ -54,7 +54,7 @@ dependencies {
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
 	// Malilib and Litematica, optional
 	modImplementation "fi.dy.masa.malilib:malilib-fabric-${project.masa_mc_version}:${project.malilib_version}"
