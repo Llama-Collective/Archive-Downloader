@@ -447,7 +447,7 @@ public class PostGridWidget implements Drawable, Element {
                     Identifier texId = Identifier.of("litematicdownloader", "grid/" + id);
                     if (client != null) {
                         client.execute(() -> {
-                            client.getTextureManager().registerTexture(texId, new NativeImageBackedTexture(img));
+                            client.getTextureManager().registerTexture(texId, new NativeImageBackedTexture(() -> "grid_image", img));
                             imageTextures.put(post.id(), texId);
                             imageSizes.put(post.id(), new int[]{img.getWidth(), img.getHeight()});
                         });

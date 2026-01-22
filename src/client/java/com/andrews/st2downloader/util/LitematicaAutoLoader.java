@@ -24,9 +24,8 @@ public final class LitematicaAutoLoader {
 		}
 
 		try {
-			File file = schematicPath.toFile();
 			fi.dy.masa.litematica.schematic.LitematicaSchematic schematic =
-				fi.dy.masa.litematica.data.SchematicHolder.getInstance().getOrLoad(file);
+				fi.dy.masa.litematica.data.SchematicHolder.getInstance().getOrLoad(schematicPath);
 			if (schematic == null) {
 				System.err.println("Failed to load schematic from " + schematicPath);
 				return false;

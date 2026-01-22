@@ -360,7 +360,7 @@ public class PostImageController {
                         client.execute(() -> {
                             client.getTextureManager().registerTexture(
                                     texId,
-                                    new NativeImageBackedTexture(nativeImage));
+                                    new NativeImageBackedTexture(() -> "post_image", nativeImage));
                             imageCache.put(imageUrl, texId);
                         });
                     }
