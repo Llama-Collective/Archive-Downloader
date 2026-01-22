@@ -174,13 +174,7 @@ public class ScrollBar implements Drawable {
     }
     
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (!isDragging) return false;
-
-        double deltaYMouse = mouseY - dragStartY;
-        double deltaScroll = deltaYMouse / getMaxHandleY();
-
-        setScrollPercentage(dragStartScroll + deltaScroll);
-        return true;
+        return false;
     }
 
     public int getWidth() {
