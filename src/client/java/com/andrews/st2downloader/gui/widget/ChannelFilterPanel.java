@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Drawable;
 import net.minecraft.client.gui.Element;
@@ -181,13 +182,17 @@ public class ChannelFilterPanel implements Drawable, Element {
         }
     }
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    @Override
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        int button = click.button();
         if (button != 0) return false;
         if (mouseX < x || mouseX >= x + width || mouseY < y || mouseY >= y + height) {
             return false;
         }
 
-        if (scrollBar.mouseClicked(mouseX, mouseY, button)) {
+        if (scrollBar.mouseClicked(click, doubled)) {
             return true;
         }
 
@@ -242,18 +247,20 @@ public class ChannelFilterPanel implements Drawable, Element {
         return false;
     }
 
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
-        if (scrollBar.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        if (scrollBar.mouseDragged(click, offsetX, offsetY)) {
             scrollOffset = scrollBar.getScrollPercentage() * Math.max(0, contentHeight - height);
-            updateHover(mouseX, mouseY);
+            updateHover(click.x(), click.y());
             return true;
         }
         return false;
     }
 
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        scrollBar.mouseReleased(mouseX, mouseY, button);
-        updateHover(mouseX, mouseY);
+    @Override
+    public boolean mouseReleased(Click click) {
+        scrollBar.mouseReleased(click);
+        updateHover(click.x(), click.y());
         return false;
     }
 

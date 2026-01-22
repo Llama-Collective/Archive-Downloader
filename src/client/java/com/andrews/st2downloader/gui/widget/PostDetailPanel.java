@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Drawable;
 import net.minecraft.client.gui.Element;
@@ -687,9 +688,14 @@ public class PostDetailPanel implements Drawable, Element {
         }
     }
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    @Override
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        int button = click.button();
+
         if (imageController.hasImageViewerOpen()) {
-            return imageController.mouseClicked(mouseX, mouseY, button);
+            return imageController.mouseClicked(click, doubled);
         }
 
         if (websiteButton != null && websiteButton.active && button == 0) {
@@ -716,7 +722,7 @@ public class PostDetailPanel implements Drawable, Element {
             return false;
         }
 
-        if (scrollBar != null && scrollBar.mouseClicked(mouseX, mouseY, button)) {
+        if (scrollBar != null && scrollBar.mouseClicked(click, doubled)) {
             return true;
         }
 
@@ -788,9 +794,10 @@ public class PostDetailPanel implements Drawable, Element {
         }
     }
 
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
         if (scrollBar != null
-                && (scrollBar.isDragging() || scrollBar.mouseDragged(mouseX, mouseY, button, deltaX, deltaY))) {
+                && (scrollBar.isDragging() || scrollBar.mouseDragged(click, offsetX, offsetY))) {
             double maxScroll = Math.max(0, contentHeight - height);
             scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
             return true;
@@ -798,12 +805,13 @@ public class PostDetailPanel implements Drawable, Element {
         return false;
     }
 
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    @Override
+    public boolean mouseReleased(Click click) {
         if (imageController.hasImageViewerOpen()) {
-            return imageController.mouseReleased(mouseX, mouseY, button);
+            return imageController.mouseReleased(click);
         }
 
-        if (scrollBar != null && scrollBar.mouseReleased(mouseX, mouseY, button)) {
+        if (scrollBar != null && scrollBar.mouseReleased(click)) {
             return true;
         }
         return false;

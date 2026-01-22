@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.Set;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Drawable;
 import net.minecraft.client.gui.Element;
@@ -468,7 +469,10 @@ public class PostGridWidget implements Drawable, Element {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        int button = click.button();
         if (blocked) return false;
         if (button != 0) return false;
 
@@ -492,7 +496,7 @@ public class PostGridWidget implements Drawable, Element {
             }
         }
 
-        if (scrollBar.mouseClicked(mouseX, mouseY, button)) {
+        if (scrollBar.mouseClicked(click, doubled)) {
             return true;
         }
 
@@ -517,9 +521,10 @@ public class PostGridWidget implements Drawable, Element {
         return false;
     }
 
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
         if (blocked) return false;
-        if (scrollBar.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (scrollBar.mouseDragged(click, offsetX, offsetY)) {
             Layout layout = computeLayout();
             double contentHeight = computeContentHeight(layout.columns());
             scrollOffset = scrollBar.getScrollPercentage() * Math.max(0, contentHeight - height);
@@ -528,8 +533,9 @@ public class PostGridWidget implements Drawable, Element {
         return false;
     }
 
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        scrollBar.mouseReleased(mouseX, mouseY, button);
+    @Override
+    public boolean mouseReleased(Click click) {
+        scrollBar.mouseReleased(click);
         return false;
     }
 

@@ -2,6 +2,7 @@ package com.andrews.st2downloader.gui.widget;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
@@ -199,7 +200,10 @@ public class ImageViewerWidget {
         RenderUtil.fillRect(context, bgX, bgY, bgX + bgWidth, bgY + bgHeight, NAV_BG_COLOR);
     }
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        int button = click.button();
         if (button != 0) return false;
 
         if (isOverButton(closeButton, mouseX, mouseY)) {
@@ -230,8 +234,8 @@ public class ImageViewerWidget {
                mouseY >= btn.getY() &&
                mouseY < btn.getY() + btn.getHeight();
     }
-
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    
+    public boolean mouseReleased(Click click) {
         return false;
     }
 

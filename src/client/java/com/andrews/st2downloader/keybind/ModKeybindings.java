@@ -16,7 +16,7 @@ public final class ModKeybindings {
 				KEY_OPEN_MENU,
 				InputUtil.Type.KEYSYM,
 				DEFAULT_KEY,
-				KeyBinding.MISC_CATEGORY
+				KeyBinding.Category.MISC
 		));
 	}
 

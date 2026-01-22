@@ -1,5 +1,6 @@
 package com.andrews.st2downloader.gui;
 
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
@@ -607,15 +608,18 @@ public class LitematicDownloaderScreen extends Screen {
 
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        int button = click.button();
         boolean channelOverlayOpen = showChannelPanel && channelPanel != null;
 
         if (discordPopup != null) {
-            return discordPopup.mouseClicked(mouseX, mouseY, button);
+            return discordPopup.mouseClicked(click, doubled);
         }
 
         if (detailPanel != null && detailPanel.hasImageViewerOpen()) {
-            return detailPanel.mouseClicked(mouseX, mouseY, button);
+            return detailPanel.mouseClicked(click, doubled);
         }
 
         if (showDetailOverlay && button == 0 && detailCloseButton != null && isMouseOverButton(detailCloseButton, mouseX, mouseY)) {
@@ -627,7 +631,7 @@ public class LitematicDownloaderScreen extends Screen {
         }
 
         if (showDetailOverlay && detailPanel != null) {
-            if (detailPanel.mouseClicked(mouseX, mouseY, button)) {
+            if (detailPanel.mouseClicked(click, doubled)) {
                 return true;
             }
             showDetailOverlay = false;
@@ -655,7 +659,7 @@ public class LitematicDownloaderScreen extends Screen {
                 if (this.client != null) {
                     channelToggleButton.playDownSound(this.client.getSoundManager());
                 }
-                channelToggleButton.onPress();
+                channelToggleButton.onPress(click);
             }
             return true;
         }
@@ -682,64 +686,66 @@ public class LitematicDownloaderScreen extends Screen {
         // tagField removed
 
         if (channelOverlayOpen) {
-            if (channelPanel != null && channelPanel.mouseClicked(mouseX, mouseY, button)) {
+            if (channelPanel != null && channelPanel.mouseClicked(click, doubled)) {
                 return true;
             }
-            if (tagFilterWidget != null && tagFilterWidget.handleClick(mouseX, mouseY)) {
+            if (tagFilterWidget != null && tagFilterWidget.mouseClicked(click, doubled)) {
                 return true;
             }
             showChannelPanel = false;
             return true;
         }
 
-        if (postGrid != null && postGrid.mouseClicked(mouseX, mouseY, button)) {
+        if (postGrid != null && postGrid.mouseClicked(click, doubled)) {
             return true;
         }
 
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(click, doubled);
     }
 
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
         if (showServerDropdown) {
             return false;
         }
         if (discordPopup != null) {
             return true;
         }
-        if (showDetailOverlay && detailPanel != null && detailPanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (showDetailOverlay && detailPanel != null && detailPanel.mouseDragged(click, offsetX, offsetY)) {
             return true;
         }
         boolean channelOverlayOpen = showChannelPanel && channelPanel != null;
-        if (channelPanel != null && channelPanel.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (channelPanel != null && channelPanel.mouseDragged(click, offsetX, offsetY)) {
             return true;
         }
         if (channelOverlayOpen) {
             return true;
         }
-        if (postGrid != null && postGrid.mouseDragged(mouseX, mouseY, button, deltaX, deltaY)) {
+        if (postGrid != null && postGrid.mouseDragged(click, offsetX, offsetY)) {
             return true;
         }
         return false;
     }
 
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    @Override
+    public boolean mouseReleased(Click click) {
         if (showServerDropdown) {
             return false;
         }
         if (discordPopup != null) {
             return true;
         }
-        if (showDetailOverlay && detailPanel != null && detailPanel.mouseReleased(mouseX, mouseY, button)) {
+        if (showDetailOverlay && detailPanel != null && detailPanel.mouseReleased(click)) {
             return true;
         }
         boolean channelOverlayOpen = showChannelPanel && channelPanel != null;
-        if (channelPanel != null && channelPanel.mouseReleased(mouseX, mouseY, button)) {
+        if (channelPanel != null && channelPanel.mouseReleased(click)) {
             return true;
         }
         if (channelOverlayOpen) {
             return true;
         }
-        if (postGrid != null && postGrid.mouseReleased(mouseX, mouseY, button)) {
+        if (postGrid != null && postGrid.mouseReleased(click)) {
             return true;
         }
         return false;

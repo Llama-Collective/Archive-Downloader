@@ -4,6 +4,8 @@ import org.lwjgl.glfw.GLFW;
 
 import com.andrews.st2downloader.gui.theme.UITheme;
 import com.andrews.st2downloader.util.RenderUtil;
+
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Drawable;
 
@@ -140,7 +142,11 @@ public class ScrollBar implements Drawable {
         drawScrollBar(context, getHandleHeight());
     }
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        int button = click.button();
+
         if (!isVisible() || button != 0) return false;
 
         if (isMouseOverHandle((int)mouseX, (int)mouseY)) {
@@ -165,18 +171,18 @@ public class ScrollBar implements Drawable {
         return false;
     }
     
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        if (button == 0 && isDragging) {
+    public boolean mouseReleased(Click click) {
+        if (click.button() == 0 && isDragging) {
             isDragging = false;
             return true;
         }
         return false;
     }
     
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
         if (!isDragging) return false;
 
-        double deltaYMouse = mouseY - dragStartY;
+        double deltaYMouse = click.y() - dragStartY;
         double deltaScroll = deltaYMouse / getMaxHandleY();
 
         setScrollPercentage(dragStartScroll + deltaScroll);

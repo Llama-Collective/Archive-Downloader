@@ -3,6 +3,7 @@ package com.andrews.st2downloader.gui.widget;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.Drawable;
 import net.minecraft.client.gui.Element;
@@ -220,7 +221,10 @@ public class DiscordJoinPopup implements Drawable, Element {
 		}
 	}
 
-	public boolean mouseClicked(double mouseX, double mouseY, int button) {
+	@Override
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
 		if (mouseX < x || mouseX > x + POPUP_WIDTH || mouseY < y || mouseY > y + popupHeight) {
 			onCancel.run();
 			return true;

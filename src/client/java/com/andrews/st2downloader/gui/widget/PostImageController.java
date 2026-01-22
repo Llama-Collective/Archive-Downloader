@@ -24,6 +24,7 @@ import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.texture.NativeImageBackedTexture;
@@ -196,12 +197,12 @@ public class PostImageController {
         }
     }
 
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        return imageViewer != null && imageViewer.mouseClicked(mouseX, mouseY, button);
+    public boolean mouseClicked(Click click, boolean doubled) {
+        return imageViewer != null && imageViewer.mouseClicked(click, doubled);
     }
 
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
-        return imageViewer != null && imageViewer.mouseReleased(mouseX, mouseY, button);
+    public boolean mouseReleased(Click click) {
+        return imageViewer != null && imageViewer.mouseReleased(click);
     }
 
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {

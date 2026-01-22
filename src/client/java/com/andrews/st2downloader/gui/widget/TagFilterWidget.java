@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import net.minecraft.client.font.TextRenderer;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import com.andrews.st2downloader.gui.theme.UITheme;
 import com.andrews.st2downloader.util.RenderUtil;
@@ -140,8 +141,10 @@ public class TagFilterWidget {
         }
     }
 
-    public boolean handleClick(double mouseX, double mouseY) {
-        if (scrollBar != null && scrollBar.mouseClicked(mouseX, mouseY, 0)) {
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        if (scrollBar != null && scrollBar.mouseClicked(click, doubled)) {
             double maxScroll = Math.max(0, contentHeight - lastBoxHeight);
             scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
             return true;
