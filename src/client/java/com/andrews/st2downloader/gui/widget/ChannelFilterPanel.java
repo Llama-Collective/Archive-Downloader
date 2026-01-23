@@ -132,13 +132,14 @@ public class ChannelFilterPanel implements Drawable, Element {
         RenderUtil.enableScissor(context, x, y + HEADER_HEIGHT, x + width - scrollbarWidth, y + height - 10);
 
         int currentY = listStartY;
+        int categoryRowHeight = getCategoryRowHeight();
         for (Map.Entry<String, List<ArchiveChannel>> entry : channelsByCategory.entrySet()) {
             String category = entry.getKey();
             List<ArchiveChannel> categoryChannels = entry.getValue();
 
             RenderUtil.drawScaledString(context, category, x + UITheme.Dimensions.PADDING, currentY + 4, UITheme.Colors.TEXT_SUBTITLE, scale);
-            currentY += (int) (ITEM_HEIGHT * scale) + 2;
-            contentHeight += ITEM_HEIGHT;
+            currentY += categoryRowHeight;
+            contentHeight += categoryRowHeight;
 
             for (ArchiveChannel channel : categoryChannels) {
                 boolean selected = channel.path().equals(selectedPath);
@@ -207,9 +208,10 @@ public class ChannelFilterPanel implements Drawable, Element {
 
         int listStartY = y + HEADER_HEIGHT - (int) scrollOffset;
         int currentY = listStartY;
+        int categoryRowHeight = getCategoryRowHeight();
 
         for (Map.Entry<String, List<ArchiveChannel>> entry : channelsByCategory.entrySet()) {
-            currentY += ITEM_HEIGHT; // skip category row
+            currentY += categoryRowHeight; // skip category row
             for (ArchiveChannel channel : entry.getValue()) {
                 if (mouseY >= currentY && mouseY < currentY + ITEM_HEIGHT) {
                     if (selectedPath != null && selectedPath.equals(channel.path())) {
@@ -234,6 +236,10 @@ public class ChannelFilterPanel implements Drawable, Element {
             currentY += 4;
         }
 
+        // check if mouse is within bounds but didn't hit any items
+        if (mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height) {
+            return true;
+        }
         return false;
     }
 
@@ -286,10 +292,10 @@ public class ChannelFilterPanel implements Drawable, Element {
         int currentY = listStartY;
         int scrollbarWidth = this.scrollBar.isVisible() ? (UITheme.Dimensions.SCROLLBAR_WIDTH - UITheme.Dimensions.PADDING / 2) : 0;
 
-        float scale = 0.9f;
+        int categoryRowHeight = getCategoryRowHeight();
         for (Map.Entry<String, List<ArchiveChannel>> entry : channelsByCategory.entrySet()) {
             // skip category row height
-            currentY += (int) (ITEM_HEIGHT * scale) + 2;
+            currentY += categoryRowHeight;
             List<ArchiveChannel> categoryChannels = entry.getValue();
             for (ArchiveChannel channel : categoryChannels) {
                 if (mouseY >= currentY && mouseY < currentY + ITEM_HEIGHT &&
@@ -304,5 +310,9 @@ public class ChannelFilterPanel implements Drawable, Element {
         }
         onHoverChanged.accept(hovered);
         
+    }
+
+    private int getCategoryRowHeight() {
+        return (int) (ITEM_HEIGHT * 0.9f) + 2;
     }
 }
