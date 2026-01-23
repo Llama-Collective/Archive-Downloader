@@ -169,6 +169,12 @@ public class TagFilterWidget {
                 return true;
             }
         }
+
+        // check if mouse is within bounds but didn't hit any items
+        if (mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height) {
+            return true;
+        }
+
         return false;
     }
 
