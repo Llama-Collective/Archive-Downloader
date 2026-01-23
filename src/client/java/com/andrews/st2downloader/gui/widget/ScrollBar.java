@@ -4,12 +4,11 @@ import org.lwjgl.glfw.GLFW;
 
 import com.andrews.st2downloader.gui.theme.UITheme;
 import com.andrews.st2downloader.util.RenderUtil;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Renderable;
+import net.minecraft.client.input.MouseButtonEvent;
 
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.Drawable;
-
-public class ScrollBar implements Drawable {
+public class ScrollBar implements Renderable {
     private static final int MIN_HANDLE_HEIGHT = 20;
 
     private final int x;
@@ -75,7 +74,7 @@ public class ScrollBar implements Drawable {
                mouseY >= y && mouseY < y + height;
     }
 
-    public boolean updateAndRender(DrawContext context, int mouseX, int mouseY, float delta, long windowHandle) {
+    public boolean updateAndRender(GuiGraphics context, int mouseX, int mouseY, float delta, long windowHandle) {
         if (!isVisible()) return false;
 
         boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
@@ -126,7 +125,7 @@ public class ScrollBar implements Drawable {
         return scrollChanged;
     }
 
-    private void drawScrollBar(DrawContext context, double handleHeight) {
+    private void drawScrollBar(GuiGraphics context, double handleHeight) {
         RenderUtil.fillRect(context, x, y, x + UITheme.Dimensions.SCROLLBAR_WIDTH, y + height, UITheme.Colors.SCROLLBAR_BG);
 
         double handleY = getHandleY();
@@ -135,14 +134,14 @@ public class ScrollBar implements Drawable {
     }
 
     @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
         if (!isVisible()) return;
 
         isHovered = isMouseOverHandle(mouseX, mouseY);
         drawScrollBar(context, getHandleHeight());
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         int button = click.button();
@@ -171,7 +170,7 @@ public class ScrollBar implements Drawable {
         return false;
     }
     
-    public boolean mouseReleased(Click click) {
+    public boolean mouseReleased(MouseButtonEvent click) {
         if (click.button() == 0 && isDragging) {
             isDragging = false;
             return true;
@@ -179,7 +178,7 @@ public class ScrollBar implements Drawable {
         return false;
     }
     
-    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+    public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
         // if (!isDragging) return false;
         // double mouseY = click.y();
         // double maxHandleY = getMaxHandleY();

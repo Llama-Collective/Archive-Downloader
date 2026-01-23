@@ -1,10 +1,10 @@
 package com.andrews.st2downloader.gui.widget;
 
 import com.andrews.st2downloader.util.RenderUtil;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.Drawable;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Renderable;
 
-public class LoadingSpinner implements Drawable {
+public class LoadingSpinner implements Renderable {
 	private static final int SPINNER_SIZE = 32;
 	private static final int BLOCK_SIZE = 3;
 	private static final int NUM_BLOCKS = 8;
@@ -32,7 +32,7 @@ public class LoadingSpinner implements Drawable {
 	}
 
 	@Override
-	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+	public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
 		animationTime += FADE_SPEED;
 		if (animationTime >= NUM_BLOCKS) {
 			animationTime -= NUM_BLOCKS;

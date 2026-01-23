@@ -1,5 +1,5 @@
 plugins {
-	id 'fabric-loom' version "${loom_version}"
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
 	id 'maven-publish'
 }
 
@@ -7,7 +7,7 @@ version = project.mod_version
 group = project.maven_group
 
 base {
-	archivesName = "${project.archives_base_name}-${project.minecraft_version}"
+	archivesName = project.archives_base_name
 }
 
 repositories {
@@ -16,9 +16,6 @@ repositories {
 	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
 	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
 	// for more information about repositories.
-	maven {url = "https://masa.dy.fi/maven/sakura-ryoko"
-		content {includeGroupAndSubgroups("fi.dy.masa")}
-	}
 	maven { url = 'https://maven.fallenbreath.me/releases' }
 	maven { url = 'https://maven.terraformersmc.com/releases/' }
 	maven { url = 'https://oss.sonatype.org/content/repositories/snapshots' }
@@ -50,15 +47,15 @@ loom {
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	mappings loom.officialMojangMappings()
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
-	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
 	// Malilib and Litematica, optional
-	modImplementation "fi.dy.masa.malilib:malilib-fabric-${project.masa_mc_version}:${project.malilib_version}"
-	modImplementation "fi.dy.masa.litematica:litematica-fabric-${project.masa_mc_version}:${project.litematica_version}"
+	modImplementation "com.github.sakura-ryoko:malilib:${project.malilib_version}"
+	modImplementation "com.github.sakura-ryoko:litematica:${project.litematica_version}"
 
 	implementation 'com.google.code.gson:gson:2.10.1'
 }

@@ -25,7 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 import net.minecraft.util.Util;
 
 /**
@@ -44,12 +44,12 @@ public class AttachmentManager {
     private static final long MAX_SINGLE_ENTRY_BYTES = 512L * 1024 * 1024; // 512MB per entry
     private static final int MAX_ENTRY_COUNT = 20000;
 
-    private final MinecraftClient client;
+    private final Minecraft client;
     private List<ArchiveAttachment> availableFiles = new ArrayList<>();
     private String downloadStatus = "";
     private ServerEntry server = ServerDictionary.getDefaultServer();
 
-    public AttachmentManager(MinecraftClient client) {
+    public AttachmentManager(Minecraft client) {
         this.client = client;
     }
 
@@ -497,7 +497,7 @@ public class AttachmentManager {
             return;
         }
         try {
-            Util.getOperatingSystem().open(url);
+            Util.getPlatform().openUri(url);
         } catch (Exception e) {
             System.err.println("Failed to open attachment URL: " + e.getMessage());
         }

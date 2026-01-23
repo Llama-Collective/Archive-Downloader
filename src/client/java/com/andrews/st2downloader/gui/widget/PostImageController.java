@@ -2,6 +2,7 @@ package com.andrews.st2downloader.gui.widget;
 
 import com.andrews.st2downloader.models.ArchiveImageInfo;
 import com.andrews.st2downloader.network.ArchiveNetworkManager;
+import com.mojang.blaze3d.platform.NativeImage;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -23,19 +24,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
 
 /**
  * Handles image state, loading, and viewer interactions for the post detail view.
  */
 public class PostImageController {
 
-    private final MinecraftClient client;
+    private final Minecraft client;
     private final LoadingSpinner loadingSpinner;
 
     private List<ArchiveImageInfo> imageInfos = new ArrayList<>();
@@ -54,7 +54,7 @@ public class PostImageController {
 
     private ImageViewerWidget imageViewer;
 
-    public PostImageController(MinecraftClient client) {
+    public PostImageController(Minecraft client) {
         this.client = client;
         this.loadingSpinner = new LoadingSpinner(0, 0);
     }
@@ -191,17 +191,17 @@ public class PostImageController {
         imageViewer = null;
     }
 
-    public void renderImageViewer(DrawContext context, int mouseX, int mouseY, float delta) {
+    public void renderImageViewer(GuiGraphics context, int mouseX, int mouseY, float delta) {
         if (imageViewer != null) {
             imageViewer.render(context, mouseX, mouseY, delta);
         }
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         return imageViewer != null && imageViewer.mouseClicked(click, doubled);
     }
 
-    public boolean mouseReleased(Click click) {
+    public boolean mouseReleased(MouseButtonEvent click) {
         return imageViewer != null && imageViewer.mouseReleased(click);
     }
 
@@ -232,7 +232,7 @@ public class PostImageController {
             return;
         }
         closeImageViewer();
-        openImageViewer(client.getWindow().getScaledWidth(), client.getWindow().getScaledHeight());
+        openImageViewer(client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight());
     }
 
     private void loadImage(String imageUrl) {
@@ -354,14 +354,14 @@ public class PostImageController {
                     imageDimensionsCache.put(imageUrl, new int[] { imgWidth, imgHeight });
 
                     final String uniqueId = UUID.randomUUID().toString().replace("-", "");
-                    final Identifier texId = Identifier.of("litematicdownloader",
+                    final Identifier texId = Identifier.fromNamespaceAndPath("litematicdownloader",
                             "textures/dynamic/" + uniqueId);
 
                     if (client != null) {
                         client.execute(() -> {
-                            client.getTextureManager().registerTexture(
+                            client.getTextureManager().register(
                                     texId,
-                                    new NativeImageBackedTexture(() -> "post_image", nativeImage));
+                                    new DynamicTexture(() -> "post_image", nativeImage));
                             imageCache.put(imageUrl, texId);
                         });
                     }

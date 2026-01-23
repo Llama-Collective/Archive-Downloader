@@ -2,7 +2,7 @@ package com.andrews.st2downloader.mixin.client;
 
 import com.andrews.st2downloader.gui.LitematicDownloaderScreen;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -38,7 +38,7 @@ public abstract class LitematicaGuiMainMenuMixin extends GuiBase {
     private void st2$createArchiveButton(int x, int y, int width) {
         String label = "ST2 Browser";
         ButtonGeneric button = new ButtonGeneric(x, y, width, 20, label, null, new String[] { "Open the ST2 archive browser" });
-        addButton(button, (btn, mouseButton) -> MinecraftClient.getInstance().setScreen(new LitematicDownloaderScreen()));
+        addButton(button, (btn, mouseButton) -> Minecraft.getInstance().setScreen(new LitematicDownloaderScreen()));
     }
 
     @Unique

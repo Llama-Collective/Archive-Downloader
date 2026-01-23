@@ -3,8 +3,8 @@ package com.andrews.st2downloader.gui.widget;
 import com.andrews.st2downloader.gui.theme.UITheme;
 import com.andrews.st2downloader.models.ArchiveChannel;
 import com.andrews.st2downloader.util.RenderUtil;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 
 public class ChannelDescriptionWidget {
     private int x;
@@ -24,7 +24,7 @@ public class ChannelDescriptionWidget {
         this.channel = channel;
     }
 
-    public void render(DrawContext context, TextRenderer font) {
+    public void render(GuiGraphics context, Font font) {
         RenderUtil.fillRect(context, x, y, x + width, y + height, UITheme.Colors.PANEL_BG_SECONDARY);
         RenderUtil.fillRect(context, x, y, x + width, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
         RenderUtil.fillRect(context, x, y, x + UITheme.Dimensions.BORDER_WIDTH, y + height, UITheme.Colors.BUTTON_BORDER);

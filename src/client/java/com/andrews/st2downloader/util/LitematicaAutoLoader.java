@@ -3,8 +3,8 @@ package com.andrews.st2downloader.util;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 
 public final class LitematicaAutoLoader {
 	private LitematicaAutoLoader() {}
@@ -17,8 +17,8 @@ public final class LitematicaAutoLoader {
 			return false;
 		}
 
-		MinecraftClient client = MinecraftClient.getInstance();
-		if (client == null || client.player == null || client.world == null) {
+		Minecraft client = Minecraft.getInstance();
+		if (client == null || client.player == null || client.level == null) {
 			return false;
 		}
 
@@ -39,7 +39,7 @@ public final class LitematicaAutoLoader {
 				displayName = stripExtension(fallbackName);
 			}
 
-			BlockPos origin = client.player.getBlockPos();
+			BlockPos origin = client.player.blockPosition();
 			fi.dy.masa.litematica.schematic.placement.SchematicPlacement placement =
 				fi.dy.masa.litematica.schematic.placement.SchematicPlacement.createFor(schematic, origin, displayName, true, true);
 

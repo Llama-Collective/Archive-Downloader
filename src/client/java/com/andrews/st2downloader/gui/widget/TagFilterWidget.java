@@ -5,9 +5,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.input.MouseButtonEvent;
 import com.andrews.st2downloader.gui.theme.UITheme;
 import com.andrews.st2downloader.util.RenderUtil;
 
@@ -55,7 +55,7 @@ public class TagFilterWidget {
         this.onToggle = callback;
     }
 
-    public void render(DrawContext context, TextRenderer font, int mouseX, int mouseY, float delta, long windowHandle) {
+    public void render(GuiGraphics context, Font font, int mouseX, int mouseY, float delta, long windowHandle) {
         if (scrollBar == null) {
             scrollBar = new ScrollBar(x + width - UITheme.Dimensions.SCROLLBAR_WIDTH - UITheme.Dimensions.BORDER_WIDTH,
                     y + rowHeight, height - rowHeight - UITheme.Dimensions.PADDING);
@@ -101,7 +101,7 @@ public class TagFilterWidget {
 
                 int swatchColor = getTagSwatchColor(tag);
                 int textColor = UITheme.Colors.TEXT_PRIMARY;
-                int textHeight = (int) (font.fontHeight * 0.85f);
+                int textHeight = (int) (font.lineHeight * 0.85f);
                 int centerOffset = (rowHeight - textHeight) / 2;
                 RenderUtil.fillRect(context, x + UITheme.Dimensions.PADDING, currentY + 4, x + UITheme.Dimensions.PADDING + 6,
                         currentY + rowHeight - 4, swatchColor);
@@ -111,7 +111,7 @@ public class TagFilterWidget {
                 int count = counts.getOrDefault(tag.toLowerCase(), 0);
                 String countText = String.valueOf(count);
                 RenderUtil.drawString(context, font, countText,
-                        x + innerWidth - UITheme.Dimensions.PADDING - font.getWidth(countText) - scrollbarWidth,
+                        x + innerWidth - UITheme.Dimensions.PADDING - font.width(countText) - scrollbarWidth,
                         currentY + 4, UITheme.Colors.TEXT_SUBTITLE);
             }
 
@@ -141,7 +141,7 @@ public class TagFilterWidget {
         }
     }
 
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         if (scrollBar != null && scrollBar.mouseClicked(click, doubled)) {

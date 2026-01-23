@@ -2,18 +2,18 @@ package com.andrews.st2downloader.gui.widget;
 
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.Click;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.Drawable;
-import net.minecraft.client.gui.Element;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Renderable;
+import net.minecraft.client.gui.components.events.GuiEventListener;
+import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 import com.andrews.st2downloader.gui.theme.UITheme;
 import com.andrews.st2downloader.util.RenderUtil;
 
-public class DiscordJoinPopup implements Drawable, Element {
+public class DiscordJoinPopup implements Renderable, GuiEventListener {
 	private static final int POPUP_WIDTH = 420;
 	private static final int MAX_MESSAGE_HEIGHT = 260;
 
@@ -43,11 +43,11 @@ public class DiscordJoinPopup implements Drawable, Element {
 		this.onOpenInvite = onOpenInvite;
 		this.onCancel = onCancel;
 
-		MinecraftClient client = MinecraftClient.getInstance();
+		Minecraft client = Minecraft.getInstance();
 		this.wrappedMessage = wrapText(message, POPUP_WIDTH - UITheme.Dimensions.PADDING * 2, client);
 
-		int screenHeight = client.getWindow().getScaledHeight();
-		int screenWidth = client.getWindow().getScaledWidth();
+		int screenHeight = client.getWindow().getGuiScaledHeight();
+		int screenWidth = client.getWindow().getGuiScaledWidth();
 
 		int verticalMargin = 40;
 		int chromeHeight = UITheme.Dimensions.PADDING + UITheme.Typography.LINE_HEIGHT + UITheme.Dimensions.PADDING +
@@ -82,7 +82,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 				buttonY,
 				buttonWidth,
 				UITheme.Dimensions.BUTTON_HEIGHT,
-				Text.of("Cancel"),
+				Component.nullToEmpty("Cancel"),
 				button -> onCancel.run()
 		);
 
@@ -91,7 +91,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 				buttonY,
 				buttonWidth,
 				UITheme.Dimensions.BUTTON_HEIGHT,
-				Text.of("Open Invite"),
+				Component.nullToEmpty("Open Invite"),
 				button -> onOpenInvite.run()
 		);
 
@@ -100,12 +100,12 @@ public class DiscordJoinPopup implements Drawable, Element {
 				buttonY,
 				buttonWidth,
 				UITheme.Dimensions.BUTTON_HEIGHT,
-				Text.of("Continue"),
+				Component.nullToEmpty("Continue"),
 				button -> onContinue.run()
 		);
 	}
 
-	private List<String> wrapText(String text, int maxWidth, MinecraftClient client) {
+	private List<String> wrapText(String text, int maxWidth, Minecraft client) {
 		List<String> lines = new ArrayList<>();
 		String[] paragraphs = text.split("\n");
 
@@ -120,7 +120,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 
 			for (String word : words) {
 				String testLine = currentLine.length() == 0 ? word : currentLine + " " + word;
-				int width = client.textRenderer.getWidth(testLine);
+				int width = client.font.width(testLine);
 
 				if (width <= maxWidth) {
 					if (currentLine.length() > 0) {
@@ -144,9 +144,9 @@ public class DiscordJoinPopup implements Drawable, Element {
 	}
 
 	@Override
-	public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-		MinecraftClient client = MinecraftClient.getInstance();
-		long windowHandle = client.getWindow() != null ? client.getWindow().getHandle() : 0;
+	public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+		Minecraft client = Minecraft.getInstance();
+		long windowHandle = client.getWindow() != null ? client.getWindow().handle() : 0;
 
 		if (windowHandle != 0) {
 			boolean enterPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS ||
@@ -164,7 +164,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 			wasEscapePressed = escapePressed;
 		}
 
-		RenderUtil.fillRect(context, 0, 0, client.getWindow().getScaledWidth(), client.getWindow().getScaledHeight(), UITheme.Colors.OVERLAY_BG);
+		RenderUtil.fillRect(context, 0, 0, client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight(), UITheme.Colors.OVERLAY_BG);
 		RenderUtil.fillRect(context, x, y, x + POPUP_WIDTH, y + popupHeight, UITheme.Colors.BUTTON_BG_DISABLED);
 
 		RenderUtil.fillRect(context, x, y, x + POPUP_WIDTH, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
@@ -174,7 +174,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 
 		RenderUtil.drawCenteredString(
 				context,
-				client.textRenderer,
+				client.font,
 				title,
 				x + POPUP_WIDTH / 2,
 				y + UITheme.Dimensions.PADDING,
@@ -190,7 +190,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 			if (messageY + UITheme.Typography.LINE_HEIGHT >= messageAreaY && messageY < messageAreaY + messageAreaHeight) {
 				RenderUtil.drawString(
 						context,
-						client.textRenderer,
+						client.font,
 						line,
 						x + UITheme.Dimensions.PADDING,
 						messageY,
@@ -203,7 +203,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 
 		if (scrollBar != null && client.getWindow() != null) {
 			scrollBar.setScrollPercentage(scrollOffset / Math.max(1, actualMessageHeight - visibleMessageHeight));
-			boolean scrollChanged = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.getWindow().getHandle());
+			boolean scrollChanged = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.getWindow().handle());
 			if (scrollChanged || scrollBar.isDragging()) {
 				double maxScroll = actualMessageHeight - visibleMessageHeight;
 				scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
@@ -222,7 +222,7 @@ public class DiscordJoinPopup implements Drawable, Element {
 	}
 
 	@Override
-    public boolean mouseClicked(Click click, boolean doubled) {
+    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
 		if (mouseX < x || mouseX > x + POPUP_WIDTH || mouseY < y || mouseY > y + popupHeight) {
