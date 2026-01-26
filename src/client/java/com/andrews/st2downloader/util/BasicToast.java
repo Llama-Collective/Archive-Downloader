@@ -47,11 +47,11 @@ public class BasicToast implements Toast {
         RenderUtil.drawBorder(context, 0, 0, WIDTH, height, border);
         int y = 7;
         for (int i = 0; i < wrappedTitle.size(); i++) {
-            context.drawString(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFF, false);
+            context.drawString(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFFFF, false);
             y += 9;
         }
         for (var line : wrappedBody) {
-            context.drawString(textRenderer, line, 12, y, 0xAAAAAA, false);
+            context.drawString(textRenderer, line, 12, y, 0xFFAAAAAA, false);
             y += 9;
         }
     }
