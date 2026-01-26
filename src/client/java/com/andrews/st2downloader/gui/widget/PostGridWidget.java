@@ -292,21 +292,22 @@ public class PostGridWidget implements Drawable, Element {
             int tagY = textY;
             int rows = 1;
             int maxRows = 2;
-            for (String tag : TagUtil.orderTags(tags)) {
+            for (String tag : TagUtil.orderTags(tags, server)) {
                 if (tag == null) continue;
-                int tw = (int) (client.textRenderer.getWidth(tag) * tagScale) + 8;
+                String displayTag = TagUtil.formatTagLabel(tag, server);
+                int tw = (int) (client.textRenderer.getWidth(displayTag) * tagScale) + 8;
                 if (tagX + tw > cardX + imgPadding + maxWidth) {
                     rows++;
-                if (rows > maxRows) {
-                    break;
+                    if (rows > maxRows) {
+                        break;
+                    }
+                    tagX = cardX + imgPadding;
+                    tagY += tagHeight + 2;
                 }
-                tagX = cardX + imgPadding;
-                tagY += tagHeight + 2;
+                RenderUtil.fillRect(context, tagX, tagY, tagX + tw, tagY + tagHeight, TagUtil.getTagColor(tag, server));
+                RenderUtil.drawScaledString(context, displayTag, tagX + 4, tagY + 2, UITheme.Colors.TEXT_TAG, tagScale);
+                tagX += tw + 4;
             }
-            RenderUtil.fillRect(context, tagX, tagY, tagX + tw, tagY + tagHeight, TagUtil.getTagColor(tag));
-            RenderUtil.drawScaledString(context, tag, tagX + 4, tagY + 2, UITheme.Colors.TEXT_TAG, tagScale);
-            tagX += tw + 4;
-        }
             textY = tagY + tagHeight + 2;
         }
     }

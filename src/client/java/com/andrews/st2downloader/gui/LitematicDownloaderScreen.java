@@ -28,6 +28,7 @@ import com.andrews.st2downloader.gui.widget.TagFilterWidget;
 import com.andrews.st2downloader.models.ArchiveChannel;
 import com.andrews.st2downloader.models.ArchivePostSummary;
 import com.andrews.st2downloader.models.ArchiveSearchResult;
+import com.andrews.st2downloader.models.GlobalTag;
 import com.andrews.st2downloader.network.ArchiveNetworkManager;
 import com.andrews.st2downloader.util.RenderUtil;
 import com.andrews.st2downloader.util.TagUtil;
@@ -232,6 +233,7 @@ public class LitematicDownloaderScreen extends Screen {
             }
             if (tagFilterWidget == null) {
                 tagFilterWidget = new TagFilterWidget();
+                tagFilterWidget.setServer(selectedServer);
                 tagFilterWidget.setOnToggle((tag, state) -> {
                     String key = tag != null ? tag.toLowerCase() : "";
                     if (key.isEmpty()) return;
@@ -243,6 +245,8 @@ public class LitematicDownloaderScreen extends Screen {
                     currentPage = 1;
                     performSearch();
                 });
+            } else {
+                tagFilterWidget.setServer(selectedServer);
             }
         }
 
@@ -487,6 +491,9 @@ public class LitematicDownloaderScreen extends Screen {
             detailPanel.setServer(target);
             detailPanel.clear();
         }
+        if (tagFilterWidget != null) {
+            tagFilterWidget.setServer(target);
+        }
 
         loadChannels();
         performSearch();
@@ -494,6 +501,7 @@ public class LitematicDownloaderScreen extends Screen {
 
     private void loadChannels() {
         ServerEntry requestServer = selectedServer != null ? selectedServer : ServerDictionary.getDefaultServer();
+        ArchiveNetworkManager.getGlobalTags(requestServer);
         ArchiveNetworkManager.getChannels(requestServer)
             .thenAccept(list -> {
                 if (!isActiveServer(requestServer)) {
@@ -979,15 +987,20 @@ public class LitematicDownloaderScreen extends Screen {
     }
 
     private List<String> getDisplayedTags() {
+        ServerEntry server = getActiveServer();
         if (selectedChannelPath != null) {
             List<String> tags = channels.stream()
                 .filter(c -> selectedChannelPath.equals(c.path()))
                 .findFirst()
                 .map(c -> c.availableTags() != null ? c.availableTags() : List.<String>of())
                 .orElse(List.of());
-            return TagUtil.orderTags(tags);
+            return TagUtil.orderTags(tags, server);
         }
-        return TagUtil.orderTags(List.of("Untested", "Broken", "Tested & Functional", "Recommended"));
+        List<String> globalTagNames = ArchiveNetworkManager.getCachedGlobalTags(server).stream()
+            .map(GlobalTag::name)
+            .filter(name -> name != null && !name.isBlank())
+            .toList();
+        return TagUtil.orderTags(globalTagNames, server);
     }
 
     private List<String> getTagList(TagState state) {

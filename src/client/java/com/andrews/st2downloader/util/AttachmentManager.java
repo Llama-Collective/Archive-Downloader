@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.text.Text;
 import net.minecraft.util.Util;
 
 /**
@@ -33,7 +34,7 @@ import net.minecraft.util.Util;
  */
 public class AttachmentManager {
 
-    public record SaveResult(String fileName, Path path, boolean isWorldDownload) {}
+    public record SaveResult(String fileName, Path path, boolean isWorldDownload, List<String> worldNames) {}
 
     private static final ExecutorService IO_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "LitematicDownloader-IO");
@@ -195,10 +196,12 @@ public class AttachmentManager {
                 .thenAccept(result -> {
                     final String finalFileName = result.fileName();
                     final Path finalPath = result.path();
+                    final List<String> worldNames = result.worldNames();
                     client.execute(() -> {
                         boolean attemptedAutoLoad = shouldAutoLoadSchematic(file, finalPath);
                         boolean autoLoaded = attemptedAutoLoad && LitematicaAutoLoader.loadIntoWorld(finalPath);
                         downloadStatus = buildDownloadStatus(result, finalFileName, attemptedAutoLoad, autoLoaded);
+                        showDownloadToast(result, finalFileName, finalPath, worldNames, autoLoaded, attemptedAutoLoad);
                         System.out.println("Downloaded to: " + finalPath.toAbsolutePath());
                     });
                 })
@@ -234,6 +237,7 @@ public class AttachmentManager {
             downloadStatus = errorMsg;
             System.err.println("Failed to download schematic: " + e.getMessage());
             e.printStackTrace();
+            showToast("Download failed", errorMsg);
         });
     }
 
@@ -275,8 +279,10 @@ public class AttachmentManager {
                     if (worldName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
                         worldName = worldName.substring(0, worldName.length() - 4);
                     }
-                    Path primaryWorld = extractWorldsFromZip(data, baseTargetDir, worldName);
-                    return new SaveResult(primaryWorld.getFileName().toString(), primaryWorld, true);
+                    ExtractionOutcome outcome = extractWorldsFromZip(data, baseTargetDir, worldName);
+                    Path primaryWorld = outcome.primaryWorldDir() != null ? outcome.primaryWorldDir() : baseTargetDir;
+                    String primaryName = primaryWorld.getFileName() != null ? primaryWorld.getFileName().toString() : worldName;
+                    return new SaveResult(primaryName, primaryWorld, true, outcome.worldNames());
                 }
 
                 String baseName = attachment != null && attachment.name() != null ? attachment.name() : "download";
@@ -286,12 +292,12 @@ public class AttachmentManager {
 
                 Path existingIdentical = findIdenticalFile(baseTargetDir, baseName, data);
                 if (existingIdentical != null) {
-                    return new SaveResult(existingIdentical.getFileName().toString(), existingIdentical, false);
+                    return new SaveResult(existingIdentical.getFileName().toString(), existingIdentical, false, List.of());
                 }
 
                 Path outputFile = ensureUniqueName(baseTargetDir, baseName);
                 Files.write(outputFile, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-                return new SaveResult(outputFile.getFileName().toString(), outputFile, false);
+                return new SaveResult(outputFile.getFileName().toString(), outputFile, false, List.of());
             } catch (Exception e) {
                 throw new CompletionException(e);
             }
@@ -323,10 +329,17 @@ public class AttachmentManager {
         return candidate;
     }
 
-    private Path extractWorldsFromZip(byte[] zipBytes, Path baseTargetDir, String defaultWorldName) throws Exception {
+    private ExtractionOutcome extractWorldsFromZip(byte[] zipBytes, Path baseTargetDir, String defaultWorldName) throws Exception {
+        ExtractionStats stats = new ExtractionStats();
+        extractWorldsFromZipInternal(zipBytes, baseTargetDir, defaultWorldName, stats, false);
+        List<String> worldNames = stats.worldDirs.stream()
+            .map(path -> path.getFileName() != null ? path.getFileName().toString() : "world")
+            .toList();
+        return new ExtractionOutcome(stats.primaryWorldDir != null ? stats.primaryWorldDir : baseTargetDir, worldNames);
+    }
+
+    private void extractWorldsFromZipInternal(byte[] zipBytes, Path baseTargetDir, String defaultWorldName, ExtractionStats stats, boolean isNested) throws Exception {
         Path tempZip = Files.createTempFile("ldl_wdl_", ".zip");
-        Path primaryWorldDir = null;
-        long totalExtractedBytes = 0;
         try {
             Files.write(tempZip, zipBytes, StandardOpenOption.TRUNCATE_EXISTING);
             try (ZipFile zipFile = new ZipFile(tempZip.toFile())) {
@@ -348,7 +361,11 @@ public class AttachmentManager {
                 }
 
                 if (roots.isEmpty()) {
-                    throw new IllegalStateException("No world (level.dat) found in archive");
+                    if (isNested) {
+                        return;
+                    } else {
+                        throw new IllegalStateException("No world (level.dat) found in archive");
+                    }
                 }
 
                 ArrayList<WorldTarget> worldTargets = new ArrayList<>();
@@ -359,13 +376,13 @@ public class AttachmentManager {
                     Path worldDir = ensureUniqueDirectory(baseTargetDir, worldName);
                     Files.createDirectories(worldDir);
                     worldTargets.add(new WorldTarget(root, worldDir));
-                    if (primaryWorldDir == null) {
-                        primaryWorldDir = worldDir;
+                    if (stats.primaryWorldDir == null) {
+                        stats.primaryWorldDir = worldDir;
                     }
+                    stats.worldDirs.add(worldDir);
                 }
 
                 Enumeration<? extends ZipEntry> entries = zipFile.entries();
-                int extractedEntries = 0;
                 while (entries.hasMoreElements()) {
                     ZipEntry entry = entries.nextElement();
                     if (entry.isDirectory())
@@ -373,9 +390,19 @@ public class AttachmentManager {
                     String entryName = entry.getName().replace("\\", "/");
                     if (shouldIgnoreZipEntry(entryName))
                         continue;
-                    extractedEntries++;
-                    if (extractedEntries > MAX_ENTRY_COUNT) {
+                    stats.totalEntries++;
+                    if (stats.totalEntries > MAX_ENTRY_COUNT) {
                         throw new IllegalStateException("Archive has too many files to extract");
+                    }
+
+                    if (entryName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                        byte[] nestedBytes = readEntryBytesWithLimit(zipFile, entry, stats);
+                        String nestedDefaultName = entryName.contains("/") ? entryName.substring(entryName.lastIndexOf('/') + 1) : entryName;
+                        if (nestedDefaultName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                            nestedDefaultName = nestedDefaultName.substring(0, nestedDefaultName.length() - 4);
+                        }
+                        extractWorldsFromZipInternal(nestedBytes, baseTargetDir, nestedDefaultName, stats, true);
+                        continue;
                     }
 
                     WorldTarget target = matchWorld(entryName, worldTargets);
@@ -391,10 +418,7 @@ public class AttachmentManager {
                         continue;
                     }
                     Files.createDirectories(resolved.getParent());
-                    totalExtractedBytes += copyEntryWithLimit(zipFile, entry, resolved, totalExtractedBytes);
-                    if (totalExtractedBytes > MAX_TOTAL_UNZIPPED_BYTES) {
-                        throw new IllegalStateException("Archive is too large to extract");
-                    }
+                    copyEntryWithLimit(zipFile, entry, resolved, stats);
                 }
             }
         } finally {
@@ -403,7 +427,6 @@ public class AttachmentManager {
             } catch (Exception ignored) {
             }
         }
-        return primaryWorldDir != null ? primaryWorldDir : baseTargetDir;
     }
 
     private WorldTarget matchWorld(String entryName, List<WorldTarget> targets) {
@@ -430,7 +453,7 @@ public class AttachmentManager {
         return normalized.startsWith("__MACOSX/") || normalized.equals("__MACOSX") || normalized.contains("/__MACOSX/");
     }
 
-    private long copyEntryWithLimit(ZipFile zipFile, ZipEntry entry, Path destination, long totalSoFar) throws Exception {
+    private long copyEntryWithLimit(ZipFile zipFile, ZipEntry entry, Path destination, ExtractionStats stats) throws Exception {
         long declaredSize = entry.getSize();
         if (declaredSize > MAX_SINGLE_ENTRY_BYTES) {
             throw new IllegalStateException("Archive entry exceeds allowed size");
@@ -445,7 +468,7 @@ public class AttachmentManager {
                 if (written + read > MAX_SINGLE_ENTRY_BYTES) {
                     throw new IllegalStateException("Archive entry exceeds allowed size");
                 }
-                if (totalSoFar + written + read > MAX_TOTAL_UNZIPPED_BYTES) {
+                if (stats.totalBytes + written + read > MAX_TOTAL_UNZIPPED_BYTES) {
                     throw new IllegalStateException("Archive is too large to extract");
                 }
                 os.write(buffer, 0, read);
@@ -458,8 +481,69 @@ public class AttachmentManager {
             }
             throw e;
         }
+        stats.totalBytes += written;
         return written;
     }
+
+    private byte[] readEntryBytesWithLimit(ZipFile zipFile, ZipEntry entry, ExtractionStats stats) throws Exception {
+        long declaredSize = entry.getSize();
+        if (declaredSize > MAX_SINGLE_ENTRY_BYTES) {
+            throw new IllegalStateException("Archive entry exceeds allowed size");
+        }
+        if (declaredSize > Integer.MAX_VALUE) {
+            throw new IllegalStateException("Archive entry size invalid");
+        }
+        int initial = declaredSize > 0 ? (int) declaredSize : 8192;
+        byte[] buffer = new byte[initial];
+        int offset = 0;
+        try (var is = zipFile.getInputStream(entry)) {
+            int read;
+            while ((read = is.read(buffer, offset, buffer.length - offset)) != -1) {
+                offset += read;
+                if (offset > MAX_SINGLE_ENTRY_BYTES || stats.totalBytes + offset > MAX_TOTAL_UNZIPPED_BYTES) {
+                    throw new IllegalStateException("Archive entry exceeds allowed size");
+                }
+                if (offset == buffer.length) {
+                    buffer = Arrays.copyOf(buffer, buffer.length * 2);
+                }
+            }
+        }
+        return Arrays.copyOf(buffer, offset);
+    }
+
+    private void showDownloadToast(SaveResult result, String fileName, Path path, List<String> worldNames, boolean autoLoaded, boolean attemptedAutoLoad) {
+        if (result == null) return;
+        if (result.isWorldDownload()) {
+            List<String> names = (worldNames != null && !worldNames.isEmpty()) ? worldNames : List.of(fileName);
+            String title = "World download saved";
+            String body = "Worlds: " + String.join(", ", names);
+            showToast(title, body);
+        } else if (attemptedAutoLoad) {
+            if (autoLoaded) {
+                showToast("Loaded into Litematica", fileName);
+            } else {
+                showToast("Downloaded", fileName + " (auto-load failed)");
+            }
+        } else {
+            showToast("Downloaded", fileName);
+        }
+    }
+
+    private void showToast(String title, String body) {
+        if (client == null || client.getToastManager() == null) return;
+        Text titleText = Text.of(title != null ? title : "");
+        Text bodyText = (body != null && !body.isBlank()) ? Text.of(body) : null;
+        client.execute(() -> client.getToastManager().add(new BasicToast(titleText, bodyText)));
+    }
+
+    private static class ExtractionStats {
+        long totalBytes = 0;
+        int totalEntries = 0;
+        Path primaryWorldDir;
+        List<Path> worldDirs = new ArrayList<>();
+    }
+
+    private record ExtractionOutcome(Path primaryWorldDir, List<String> worldNames) {}
 
     private Path findIdenticalFile(Path dir, String fileName, byte[] data) {
         int dot = fileName.lastIndexOf('.');
