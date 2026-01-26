@@ -2,6 +2,7 @@ package com.andrews.st2downloader.network;
 
 import com.andrews.st2downloader.config.ServerDictionary;
 import com.andrews.st2downloader.config.ServerDictionary.ServerEntry;
+import com.andrews.st2downloader.models.ArchiveConfigJson;
 import com.andrews.st2downloader.models.ArchiveAttachment;
 import com.andrews.st2downloader.models.ArchiveChannel;
 import com.andrews.st2downloader.models.ArchiveImageInfo;
@@ -10,6 +11,7 @@ import com.andrews.st2downloader.models.ArchivePostSummary;
 import com.andrews.st2downloader.models.ArchiveRecordSection;
 import com.andrews.st2downloader.models.ArchiveSearchResult;
 import com.andrews.st2downloader.models.DiscordPostReference;
+import com.andrews.st2downloader.models.GlobalTag;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -49,6 +51,14 @@ public class ArchiveNetworkManager {
 	private static final Map<String, ArchiveIndexCache> CACHED_INDEXES = new ConcurrentHashMap<>();
 	private static final Map<String, CompletableFuture<ArchiveIndexCache>> INDEX_FUTURES = new ConcurrentHashMap<>();
 	private static final Map<String, Map<String, StyleInfo>> CACHED_SCHEMA_STYLES = new ConcurrentHashMap<>();
+	private static final Map<String, List<GlobalTag>> CACHED_GLOBAL_TAGS = new ConcurrentHashMap<>();
+	private static final Map<String, CompletableFuture<List<GlobalTag>>> GLOBAL_TAG_FUTURES = new ConcurrentHashMap<>();
+	private static final List<GlobalTag> DEFAULT_GLOBAL_TAGS = List.of(
+		new GlobalTag("Untested", "\u2049", "#fcd34d", 0xFF8C6E00L, null),
+		new GlobalTag("Broken", "\uD83D\uDC94", "#ff6969", 0xFF8B1A1AL, null),
+		new GlobalTag("Tested & Functional", "\u2705", "#34d399", 0xFF1E7F1EL, null),
+		new GlobalTag("Recommended", "\u2B50", "#29b0ff", 0xFF0066CCL, true)
+	);
 
 	public static CompletableFuture<ArchiveSearchResult> searchPosts(
 		ServerEntry server,
@@ -141,6 +151,25 @@ public class ArchiveNetworkManager {
 		return getChannels(ServerDictionary.getDefaultServer());
 	}
 
+	public static CompletableFuture<List<GlobalTag>> getGlobalTags(ServerEntry server) {
+		ServerEntry targetServer = normalizeServer(server);
+		String key = serverKey(targetServer);
+		List<GlobalTag> cached = CACHED_GLOBAL_TAGS.get(key);
+		if (cached != null) {
+			return CompletableFuture.completedFuture(cached);
+		}
+		return GLOBAL_TAG_FUTURES.computeIfAbsent(key, k -> loadGlobalTagsAsync(targetServer));
+	}
+
+	public static List<GlobalTag> getCachedGlobalTags(ServerEntry server) {
+		ServerEntry targetServer = normalizeServer(server);
+		return CACHED_GLOBAL_TAGS.getOrDefault(serverKey(targetServer), DEFAULT_GLOBAL_TAGS);
+	}
+
+	public static List<GlobalTag> getDefaultGlobalTags() {
+		return DEFAULT_GLOBAL_TAGS;
+	}
+
 	public static void clearCache(ServerEntry server) {
 		String key = serverKey(normalizeServer(server));
 		CACHED_INDEXES.remove(key);
@@ -152,6 +181,34 @@ public class ArchiveNetworkManager {
 		CACHED_INDEXES.clear();
 		INDEX_FUTURES.clear();
 		CACHED_SCHEMA_STYLES.clear();
+	}
+
+	private static CompletableFuture<List<GlobalTag>> loadGlobalTagsAsync(ServerEntry server) {
+		ServerEntry targetServer = normalizeServer(server);
+		String key = serverKey(targetServer);
+		return fetchArchiveConfigAsync(targetServer)
+			.thenApply(ArchiveNetworkManager::extractGlobalTags)
+			.exceptionally(throwable -> {
+				System.err.println("Failed to load global tags for " + key + ": " + throwable.getMessage());
+				return DEFAULT_GLOBAL_TAGS;
+			})
+			.whenComplete((tags, throwable) -> {
+				List<GlobalTag> safe = tags != null && !tags.isEmpty() ? tags : DEFAULT_GLOBAL_TAGS;
+				CACHED_GLOBAL_TAGS.put(key, safe);
+				GLOBAL_TAG_FUTURES.remove(key);
+			});
+	}
+
+	private static CompletableFuture<ArchiveConfigJson> fetchArchiveConfigAsync(ServerEntry server) {
+		return fetchJsonAsync(server, "config.json")
+			.thenApply(json -> GSON.fromJson(json, ArchiveConfigJson.class));
+	}
+
+	private static List<GlobalTag> extractGlobalTags(ArchiveConfigJson config) {
+		if (config == null || config.globalTags() == null || config.globalTags().isEmpty()) {
+			return DEFAULT_GLOBAL_TAGS;
+		}
+		return config.globalTags();
 	}
 
 	private static CompletableFuture<ArchiveIndexCache> loadIndexAsync(ServerEntry server) {

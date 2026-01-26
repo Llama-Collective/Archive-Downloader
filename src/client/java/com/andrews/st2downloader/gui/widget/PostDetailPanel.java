@@ -500,15 +500,16 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
             contentHeight += 12;
 
             int tagX = x + UITheme.Dimensions.PADDING;
-            for (String tag : TagUtil.orderTags(tags)) {
-                int tagWidth = client.font.width(tag) + 8;
+            for (String tag : TagUtil.orderTags(tags, server)) {
+                String displayTag = TagUtil.formatTagLabel(tag, server);
+                int tagWidth = client.font.width(displayTag) + 8;
                 if (tagX + tagWidth > x + width - UITheme.Dimensions.PADDING) {
                     tagX = x + UITheme.Dimensions.PADDING;
                     currentY += 14;
                     contentHeight += 14;
                 }
-                RenderUtil.fillRect(context, tagX, currentY, tagX + tagWidth, currentY + 12, TagUtil.getTagColor(tag));
-                RenderUtil.drawString(context, client.font, tag, tagX + 4, currentY + 2, UITheme.Colors.TEXT_TAG);
+                RenderUtil.fillRect(context, tagX, currentY, tagX + tagWidth, currentY + 12, TagUtil.getTagColor(tag, server));
+                RenderUtil.drawString(context, client.font, displayTag, tagX + 4, currentY + 2, UITheme.Colors.TEXT_TAG);
                 tagX += tagWidth + 4;
             }
             currentY += 16;
@@ -598,14 +599,6 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
                 contentHeight += rowHeight + 6;
             }
 
-            String downloadStatus = attachmentManager.getDownloadStatus();
-            if (downloadStatus != null && !downloadStatus.isEmpty()) {
-                int statusWidth = rowWidth - 4;
-                RenderUtil.drawWrappedText(context, client.font, downloadStatus, rowX, currentY, statusWidth, UITheme.Colors.TEXT_SUBTITLE);
-                int statusHeight = RenderUtil.getWrappedTextHeight(client.font, downloadStatus, statusWidth);
-                currentY += statusHeight + 4;
-                contentHeight += statusHeight + 4;
-            }
         }
 
         if (hasWebsiteLink()) {

@@ -8,8 +8,11 @@ import java.util.function.BiConsumer;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.input.MouseButtonEvent;
+import com.andrews.st2downloader.config.ServerDictionary;
+import com.andrews.st2downloader.config.ServerDictionary.ServerEntry;
 import com.andrews.st2downloader.gui.theme.UITheme;
 import com.andrews.st2downloader.util.RenderUtil;
+import com.andrews.st2downloader.util.TagUtil;
 
 public class TagFilterWidget {
     public enum TagState {
@@ -28,6 +31,7 @@ public class TagFilterWidget {
     private List<String> tags = new ArrayList<>();
     private Map<String, Integer> counts = new HashMap<>();
     private Map<String, TagState> tagStates = new HashMap<>();
+    private ServerEntry server = ServerDictionary.getDefaultServer();
     private final List<TagHitbox> hitboxes = new ArrayList<>();
     private BiConsumer<String, TagState> onToggle;
 
@@ -53,6 +57,10 @@ public class TagFilterWidget {
 
     public void setOnToggle(BiConsumer<String, TagState> callback) {
         this.onToggle = callback;
+    }
+
+    public void setServer(ServerEntry server) {
+        this.server = server != null ? server : ServerDictionary.getDefaultServer();
     }
 
     public void render(GuiGraphics context, Font font, int mouseX, int mouseY, float delta, long windowHandle) {
@@ -103,9 +111,10 @@ public class TagFilterWidget {
                 int textColor = UITheme.Colors.TEXT_PRIMARY;
                 int textHeight = (int) (font.lineHeight * 0.85f);
                 int centerOffset = (rowHeight - textHeight) / 2;
+                String displayTag = TagUtil.formatTagLabel(tag, server);
                 RenderUtil.fillRect(context, x + UITheme.Dimensions.PADDING, currentY + 4, x + UITheme.Dimensions.PADDING + 6,
                         currentY + rowHeight - 4, swatchColor);
-                RenderUtil.drawScaledString(context, tag, x + UITheme.Dimensions.PADDING + 10, currentY + centerOffset,
+                RenderUtil.drawScaledString(context, displayTag, x + UITheme.Dimensions.PADDING + 10, currentY + centerOffset,
                         textColor, 0.85f, innerWidth - 50);
 
                 int count = counts.getOrDefault(tag.toLowerCase(), 0);
@@ -194,18 +203,7 @@ public class TagFilterWidget {
     }
 
     private int getTagSwatchColor(String tag) {
-        if (tag == null)
-            return UITheme.Colors.BUTTON_BG;
-        String lower = tag.toLowerCase();
-        if (lower.contains("untested"))
-            return 0xFF8C6E00;
-        if (lower.contains("broken"))
-            return 0xFF8B1A1A;
-        if (lower.contains("tested") || lower.contains("functional"))
-            return 0xFF1E7F1E;
-        if (lower.contains("recommend"))
-            return 0xFFB8860B;
-        return UITheme.Colors.BUTTON_BG;
+        return TagUtil.getTagColor(tag, server);
     }
 
     private record TagHitbox(String tag, int x1, int y1, int x2, int y2) {

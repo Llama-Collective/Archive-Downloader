@@ -43,6 +43,13 @@ public final class RenderUtil {
         context.blit(pipeline, texture, x, y, u, v, width, height, texWidth, texHeight);
     }
 
+    public static void drawBorder(GuiGraphics context, int x, int y, int width, int height, int color) {
+      fillRect(context, x, y, x + width, y + 1, color);
+      fillRect(context, x, y + height - 1, x + width, y + height, color);
+      fillRect(context, x, y + 1, x + 1, y + height - 1, color);
+      fillRect(context, x + width - 1, y + 1, x + width, y + height - 1, color);
+   }
+
     public static void drawScaledString(GuiGraphics context, String text, int x, int y, int color, float scale) {
         if (text == null || text.isEmpty()) return;
         Minecraft client = Minecraft.getInstance();
