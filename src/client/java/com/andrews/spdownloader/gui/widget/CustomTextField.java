@@ -101,15 +101,18 @@ public class CustomTextField extends TextFieldWidget {
 
 	private void installCharCallback() {
 		long windowHandle = client.getWindow() != null ? client.getWindow().getHandle() : 0;
-		if (windowHandle != 0 && (!callbackInstalled || installedWindowHandle != windowHandle)) {
-			GLFW.glfwSetCharCallback(windowHandle, (window, codepoint) -> {
-				if (activeField != null && activeField.isFocused()) {
-					activeField.onCharTyped((char) codepoint);
-				}
-			});
-			callbackInstalled = true;
-			installedWindowHandle = windowHandle;
-		}
+		if (windowHandle == 0) return;
+		// Always (re)install our char callback when focusing. Other code may replace
+		// the GLFW char callback, causing typed characters to stop reaching us. By
+		// reinstalling whenever a field gains focus we ensure input continues to
+		// be delivered to the active field.
+		GLFW.glfwSetCharCallback(windowHandle, (window, codepoint) -> {
+			if (activeField != null && activeField.isFocused()) {
+				activeField.onCharTyped((char) codepoint);
+			}
+		});
+		callbackInstalled = true;
+		installedWindowHandle = windowHandle;
 	}
 
 	private void onCharTyped(char c) {
