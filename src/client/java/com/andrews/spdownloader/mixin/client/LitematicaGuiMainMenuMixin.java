@@ -23,7 +23,7 @@ public abstract class LitematicaGuiMainMenuMixin extends GuiBase {
     private void st2$addArchiveButton(CallbackInfo ci) {
         final int width = st2$getButtonWidth();
         boolean syncmaticaPresent = FabricLoader.getInstance().isModLoaded("syncmatica");
-        boolean ST2DownloaderPresent = FabricLoader.getInstance().isModLoaded("st2-downloader");
+        boolean ST2DownloaderPresent = FabricLoader.getInstance().isModLoaded("archive-downloader");
         if (syncmaticaPresent) {
             // Syncmatica adds two buttons in the third column; stack ours beneath them
             final int x = 52 + 2 * width;
