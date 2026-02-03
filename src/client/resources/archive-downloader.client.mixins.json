@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"package": "com.andrews.archivedownloader.mixin.client",
+	"compatibilityLevel": "JAVA_21",
+	"plugin": "com.andrews.archivedownloader.mixin.client.MixinClientPlugin",
+	"client": [
+		"LitematicaGuiMainMenuMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

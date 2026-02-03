@@ -1,26 +1,26 @@
 {
 	"schemaVersion": 1,
-	"id": "st2-downloader",
+	"id": "archive-downloader",
 	"version": "${version}",
-	"name": "ST2 Downloader",
-	"description": "Downloader & file manager for Storage Tech 2 Litematics",
+	"name": "Archive Downloader",
+	"description": "Download builds from the Llama Collective directly in-game.",
 	"authors": [
 		"Andrews54757"
 	],
 	"contact": {
-		"homepage": "https://github.com/Storage-Tech-2/ST2-Downloader",
-		"sources": "https://github.com/Storage-Tech-2/ST2-Downloader",
-		"issues": "https://github.com/Storage-Tech-2/ST2-Downloader/issues"
+		"homepage": "https://github.com/Llama-Collective/Archive-Downloader",
+		"sources": "https://github.com/Llama-Collective/Archive-Downloader",
+		"issues": "https://github.com/Llama-Collective/Archive-Downloader/issues"
 	},
 	"license": "MIT",
-	"icon": "assets/st2-downloader/icon.png",
+	"icon": "assets/archive-downloader/icon.png",
 	"environment": "client",
 	"entrypoints": {
 		"main": [
-			"com.andrews.st2downloader.ST2Downloader"
+			"com.andrews.archivedownloader.ArchiveDownloader"
 		],
 		"client": [
-			"com.andrews.st2downloader.ST2DownloaderClient"
+			"com.andrews.archivedownloader.ArchiveDownloaderClient"
 		]
 	},
 	"depends": {
@@ -29,10 +29,7 @@
 		"fabric-api": "*"
 	},
 	"mixins": [
-		"st2-downloader.mixins.json",
-		"st2-downloader.client.mixins.json"
-	],
-	"suggests": {
-		"another-mod": "*"
-	}
+		"archive-downloader.mixins.json",
+		"archive-downloader.client.mixins.json"
+	]
 }

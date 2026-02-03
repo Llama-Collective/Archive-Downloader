@@ -7,7 +7,7 @@ version = project.mod_version
 group = project.maven_group
 
 base {
-	archivesName = project.archives_base_name
+	archivesName = "${project.archives_base_name}-${project.version}"
 }
 
 repositories {
@@ -37,7 +37,7 @@ loom {
 	splitEnvironmentSourceSets()
 
 	mods {
-		"st2-downloader" {
+		"archive-downloader" {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
