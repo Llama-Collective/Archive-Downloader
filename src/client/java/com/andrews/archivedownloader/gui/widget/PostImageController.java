@@ -1,5 +1,7 @@
 package com.andrews.archivedownloader.gui.widget;
 
+import com.andrews.archivedownloader.config.ServerDictionary;
+import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
 import com.andrews.archivedownloader.models.ArchiveImageInfo;
 import com.andrews.archivedownloader.network.ArchiveNetworkManager;
 import com.mojang.blaze3d.platform.NativeImage;
@@ -37,6 +39,7 @@ public class PostImageController {
 
     private final Minecraft client;
     private final LoadingSpinner loadingSpinner;
+    private ServerEntry server = ServerDictionary.getDefaultServer();
 
     private List<ArchiveImageInfo> imageInfos = new ArrayList<>();
     private String currentImageDescription = "";
@@ -77,6 +80,10 @@ public class PostImageController {
 
     public void setImageInfos(List<ArchiveImageInfo> infos) {
         imageInfos = infos != null ? new ArrayList<>(infos) : new ArrayList<>();
+    }
+
+    public void setServer(ServerEntry server) {
+        this.server = server != null ? server : ServerDictionary.getDefaultServer();
     }
 
     public void setImages(List<String> images) {
@@ -316,12 +323,12 @@ public class PostImageController {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
 
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(encodedUrl))
                 .GET()
-                .header("User-Agent", ArchiveNetworkManager.USER_AGENT)
-                .build();
-
+                .header("User-Agent", ArchiveNetworkManager.USER_AGENT);
+        ArchiveNetworkManager.applyApiAuthorization(builder, server, encodedUrl);
+        HttpRequest request = builder.build();
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
                 .thenApply(response -> {
                     if (response.statusCode() != 200) {

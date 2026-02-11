@@ -16,6 +16,7 @@ public class DownloadSettings {
 	private static final String CONFIG_FILE = "archive-downloader-settings.json";
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final String KEY_JOINED_DISCORD_SERVERS = "joinedDiscordServers";
+	private static final String KEY_SERVER_API_TOKENS = "serverApiTokens";
 	private static DownloadSettings INSTANCE;
 
 	private JsonObject config;
@@ -59,6 +60,7 @@ public class DownloadSettings {
 		setDefault("joinedDiscord", false);
 		setDefault("selectedServerId", getDefaultServerId());
 		ensureJoinedDiscordMap();
+		ensureServerApiTokensMap();
 	}
 
 	private void setDefault(String key, Object value) {
@@ -224,6 +226,34 @@ public class DownloadSettings {
 		set("selectedServerId", id);
 	}
 
+	public boolean hasApiToken(ServerEntry server) {
+		return !getApiToken(server).isBlank();
+	}
+
+	public String getApiToken(ServerEntry server) {
+		ServerEntry target = server != null ? server : ServerDictionary.getDefaultServer();
+		JsonObject map = ensureServerApiTokensMap();
+		String key = getServerKey(target);
+		if (!map.has(key)) {
+			return "";
+		}
+		return map.get(key).getAsString().trim();
+	}
+
+	public void setApiToken(ServerEntry server, String token) {
+		ServerEntry target = server != null ? server : ServerDictionary.getDefaultServer();
+		JsonObject map = ensureServerApiTokensMap();
+		String key = getServerKey(target);
+		String normalized = token != null ? token.trim() : "";
+		if (normalized.isEmpty()) {
+			map.remove(key);
+		} else {
+			map.addProperty(key, normalized);
+		}
+		config.add(KEY_SERVER_API_TOKENS, map);
+		save();
+	}
+
 	private File getConfigFile() {
 		Path configDir = FabricLoader.getInstance().getConfigDir();
 		return configDir.resolve(CONFIG_FILE).toFile();
@@ -234,6 +264,13 @@ public class DownloadSettings {
 			config.add(KEY_JOINED_DISCORD_SERVERS, new JsonObject());
 		}
 		return config.getAsJsonObject(KEY_JOINED_DISCORD_SERVERS);
+	}
+
+	private JsonObject ensureServerApiTokensMap() {
+		if (!config.has(KEY_SERVER_API_TOKENS) || !config.get(KEY_SERVER_API_TOKENS).isJsonObject()) {
+			config.add(KEY_SERVER_API_TOKENS, new JsonObject());
+		}
+		return config.getAsJsonObject(KEY_SERVER_API_TOKENS);
 	}
 
 	private String getServerKey(ServerEntry server) {

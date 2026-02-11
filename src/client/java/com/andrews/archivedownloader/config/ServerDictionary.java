@@ -35,7 +35,8 @@ public final class ServerDictionary {
         String discordInviteUrl,
         String submissionsUrl,
         String downloadFolder,
-        String websiteBase
+        String websiteBase,
+        String apiBase
     ) {}
 
     private static final List<String> DEFAULT_LFS_EXTENSIONS = List.of("mp4", "bin", "zip");
@@ -167,6 +168,7 @@ public final class ServerDictionary {
             String submissionsUrl = safeTrim(entry.submissionsUrl());
             String downloadFolder = sanitizeNonBlank(entry.downloadFolder(), id);
             String websiteBase = safeTrim(entry.websiteBase());
+            String apiBase = safeTrim(entry.apiBase());
             sanitized.add(new ServerEntry(
                 id,
                 name,
@@ -177,7 +179,8 @@ public final class ServerDictionary {
                 discordInviteUrl,
                 submissionsUrl,
                 downloadFolder,
-                websiteBase
+                websiteBase,
+                apiBase
             ));
         }
         return sanitized;
@@ -203,6 +206,7 @@ public final class ServerDictionary {
             "",
             "",
             "downloads",
+            "",
             ""
         );
     }

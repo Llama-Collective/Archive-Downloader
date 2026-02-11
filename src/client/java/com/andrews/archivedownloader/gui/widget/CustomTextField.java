@@ -26,8 +26,6 @@ public class CustomTextField extends EditBox {
 	private boolean wasClearButtonMouseDown = false;
 
 	private static CustomTextField activeField = null;
-	private static boolean callbackInstalled = false;
-	private static long installedWindowHandle = 0;
 
 	private final KeyRepeatState backspaceState = new KeyRepeatState();
 	private final KeyRepeatState deleteState = new KeyRepeatState();
@@ -35,6 +33,7 @@ public class CustomTextField extends EditBox {
 	private final KeyRepeatState rightState = new KeyRepeatState();
 	private boolean wasHomePressed = false;
 	private boolean wasEndPressed = false;
+	private boolean wasPastePressed = false;
 
 	private static class KeyRepeatState {
 		boolean wasPressed = false;
@@ -110,8 +109,6 @@ public class CustomTextField extends EditBox {
 				activeField.onCharTyped((char) codepoint);
 			}
 		});
-		callbackInstalled = true;
-		installedWindowHandle = windowHandle;
 	}
 
 	private void onCharTyped(char c) {
@@ -280,6 +277,35 @@ public class CustomTextField extends EditBox {
 		long currentTime = System.currentTimeMillis();
 		String currentText = this.getValue();
 		int cursorPos = this.getCursorPosition();
+
+		boolean ctrlDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
+			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+		boolean superDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS
+			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS;
+		boolean shiftDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
+			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+		boolean isVDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_V) == GLFW.GLFW_PRESS;
+		boolean insertDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_INSERT) == GLFW.GLFW_PRESS;
+		boolean pastePressed = (ctrlDown || superDown) && isVDown || (shiftDown && insertDown);
+		if (pastePressed && !wasPastePressed) {
+			String clipboard = GLFW.glfwGetClipboardString(windowHandle);
+			if (clipboard != null && !clipboard.isEmpty()) {
+				String insert = clipboard.replace("\r", "").replace("\n", "");
+				int allowed = Math.max(0, 256 - currentText.length());
+				if (!insert.isEmpty() && allowed > 0) {
+					if (insert.length() > allowed) {
+						insert = insert.substring(0, allowed);
+					}
+					String newText = currentText.substring(0, cursorPos) + insert + currentText.substring(cursorPos);
+					this.setValue(newText);
+					this.setCursorPosition(cursorPos + insert.length());
+					if (onChanged != null) {
+						onChanged.run();
+					}
+				}
+			}
+		}
+		wasPastePressed = pastePressed;
 
 		boolean isBackspaceDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_BACKSPACE) == GLFW.GLFW_PRESS;
 		if (backspaceState.shouldTrigger(currentTime, isBackspaceDown) && cursorPos > 0) {

@@ -117,11 +117,13 @@ public class TagFilterWidget {
                 RenderUtil.drawScaledString(context, displayTag, x + UITheme.Dimensions.PADDING + 10, currentY + centerOffset,
                         textColor, 0.85f, innerWidth - 50);
 
-                int count = counts.getOrDefault(tag.toLowerCase(), 0);
-                String countText = String.valueOf(count);
-                RenderUtil.drawString(context, font, countText,
-                        x + innerWidth - UITheme.Dimensions.PADDING - font.width(countText) - scrollbarWidth,
-                        currentY + 4, UITheme.Colors.TEXT_SUBTITLE);
+                Integer count = counts.get(tag.toLowerCase());
+                if (count != null) {
+                    String countText = String.valueOf(count);
+                    RenderUtil.drawString(context, font, countText,
+                            x + innerWidth - UITheme.Dimensions.PADDING - font.width(countText) - scrollbarWidth,
+                            currentY + 4, UITheme.Colors.TEXT_SUBTITLE);
+                }
             }
 
             hitboxes.add(new TagHitbox(tag, x + 1, currentY, x + innerWidth - 1, currentY + rowHeight));
