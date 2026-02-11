@@ -35,6 +35,7 @@ public class CustomTextField extends TextFieldWidget {
 	private final KeyRepeatState rightState = new KeyRepeatState();
 	private boolean wasHomePressed = false;
 	private boolean wasEndPressed = false;
+	private boolean wasPastePressed = false;
 
 	private static class KeyRepeatState {
 		boolean wasPressed = false;
@@ -280,6 +281,35 @@ public class CustomTextField extends TextFieldWidget {
 		long currentTime = System.currentTimeMillis();
 		String currentText = this.getText();
 		int cursorPos = this.getCursor();
+
+		boolean ctrlDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
+			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
+		boolean superDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS
+			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS;
+		boolean shiftDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
+			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
+		boolean isVDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_V) == GLFW.GLFW_PRESS;
+		boolean insertDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_INSERT) == GLFW.GLFW_PRESS;
+		boolean pastePressed = (ctrlDown || superDown) && isVDown || (shiftDown && insertDown);
+		if (pastePressed && !wasPastePressed) {
+			String clipboard = GLFW.glfwGetClipboardString(windowHandle);
+			if (clipboard != null && !clipboard.isEmpty()) {
+				String insert = clipboard.replace("\r", "").replace("\n", "");
+				int allowed = Math.max(0, 256 - currentText.length());
+				if (!insert.isEmpty() && allowed > 0) {
+					if (insert.length() > allowed) {
+						insert = insert.substring(0, allowed);
+					}
+					String newText = currentText.substring(0, cursorPos) + insert + currentText.substring(cursorPos);
+					this.setText(newText);
+					this.setCursor(cursorPos + insert.length(), false);
+					if (onChanged != null) {
+						onChanged.run();
+					}
+				}
+			}
+		}
+		wasPastePressed = pastePressed;
 
 		boolean isBackspaceDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_BACKSPACE) == GLFW.GLFW_PRESS;
 		if (backspaceState.shouldTrigger(currentTime, isBackspaceDown) && cursorPos > 0) {

@@ -86,6 +86,7 @@ public class PostDetailPanel implements Drawable, Element {
     public void setServer(ServerEntry server) {
         this.server = server != null ? server : ServerDictionary.getDefaultServer();
         this.attachmentManager.setServer(this.server);
+        this.imageController.setServer(this.server);
     }
 
     private int getDisplayImageWidth() {

@@ -419,13 +419,13 @@ public class PostGridWidget implements Drawable, Element {
                     noImagePosts.add(post.id());
                     return CompletableFuture.completedFuture(null);
                 }
-                HttpRequest req = HttpRequest.newBuilder()
+                HttpRequest.Builder req = HttpRequest.newBuilder()
                     .uri(URI.create(url.replace(" ", "%20")))
                     .timeout(Duration.ofSeconds(15))
                     .header("User-Agent", ArchiveNetworkManager.USER_AGENT)
-                    .GET()
-                    .build();
-                return httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofByteArray())
+                    .GET();
+                ArchiveNetworkManager.applyApiAuthorization(req, server, url);
+                return httpClient.sendAsync(req.build(), HttpResponse.BodyHandlers.ofByteArray())
                     .thenApply(resp -> {
                         if (resp.statusCode() != 200 || resp.body() == null || resp.body().length == 0) {
                             throw new RuntimeException("Image request failed with status " + resp.statusCode());

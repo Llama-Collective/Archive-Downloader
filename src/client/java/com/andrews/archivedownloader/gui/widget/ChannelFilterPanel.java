@@ -81,7 +81,9 @@ public class ChannelFilterPanel implements Drawable, Element {
     private void ensureCountsForChannels() {
         for (ArchiveChannel channel : channels) {
             if (channel == null || channel.path() == null) continue;
-            channelCounts.putIfAbsent(channel.path(), channel.entryCount());
+            if (channel.entryCount() >= 0) {
+                channelCounts.putIfAbsent(channel.path(), channel.entryCount());
+            }
         }
     }
 
@@ -145,15 +147,26 @@ public class ChannelFilterPanel implements Drawable, Element {
                 int bgColor = selected ? UITheme.Colors.BUTTON_BG_HOVER : UITheme.Colors.PANEL_BG;
                 RenderUtil.fillRect(context, x + UITheme.Dimensions.PADDING / 2, currentY, x + width - scrollbarWidth - UITheme.Dimensions.PADDING / 2, currentY + ITEM_HEIGHT - 2, bgColor);
                 String path = channel.path();
-                int count = channelCounts.getOrDefault(path, channel.entryCount());
-                String countText = String.valueOf(count);
-                int countWidth = client.textRenderer.getWidth(countText);
+                Integer count = channelCounts.containsKey(path)
+                    ? channelCounts.get(path)
+                    : (channel.entryCount() >= 0 ? channel.entryCount() : null);
+                String countText = count != null ? String.valueOf(count) : "";
+                int countWidth = countText.isEmpty() ? 0 : client.textRenderer.getWidth(countText);
                 float textScale = 0.9f;
                 int codeWidth = client.textRenderer.getWidth(channel.code()) + 4;
 
                 RenderUtil.drawScaledString(context, channel.code(), x + UITheme.Dimensions.PADDING, currentY + 6, UITheme.Colors.TEXT_MUTED, textScale);
                 RenderUtil.drawScaledString(context, channel.name(), x + UITheme.Dimensions.PADDING + codeWidth, currentY + 6, UITheme.Colors.TEXT_PRIMARY, textScale);
-                RenderUtil.drawScaledString(context, countText, x + width - scrollbarWidth - UITheme.Dimensions.PADDING - countWidth - 6, currentY + 6, UITheme.Colors.TEXT_SUBTITLE, textScale);
+                if (!countText.isEmpty()) {
+                    RenderUtil.drawScaledString(
+                        context,
+                        countText,
+                        x + width - scrollbarWidth - UITheme.Dimensions.PADDING - countWidth - 6,
+                        currentY + 6,
+                        UITheme.Colors.TEXT_SUBTITLE,
+                        textScale
+                    );
+                }
 
                 currentY += ITEM_HEIGHT;
                 contentHeight += ITEM_HEIGHT;

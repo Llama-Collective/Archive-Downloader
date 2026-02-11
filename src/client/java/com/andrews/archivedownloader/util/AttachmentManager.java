@@ -153,11 +153,12 @@ public class AttachmentManager {
                     .followRedirects(HttpClient.Redirect.ALWAYS)
                     .build();
 
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(encodedUrl))
                     .GET()
-                    .header("User-Agent", com.andrews.archivedownloader.network.ArchiveNetworkManager.USER_AGENT)
-                    .build();
+                    .header("User-Agent", com.andrews.archivedownloader.network.ArchiveNetworkManager.USER_AGENT);
+            com.andrews.archivedownloader.network.ArchiveNetworkManager.applyApiAuthorization(requestBuilder, server, encodedUrl);
+            HttpRequest request = requestBuilder.build();
 
             System.out.println("[Download] Sending request...");
             httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
@@ -274,9 +275,15 @@ public class AttachmentManager {
             try {
                 boolean isWorldDownload = attachment != null && attachment.wdl() != null;
                 ServerEntry targetServer = server != null ? server : ServerDictionary.getDefaultServer();
-                Path baseTargetDir = isWorldDownload
-                        ? Paths.get(DownloadSettings.getInstance().getGameDirectory(), "saves")
-                        : Paths.get(DownloadSettings.getInstance().getAbsoluteDownloadPath(targetServer));
+                Path baseTargetDir;
+                if (isWorldDownload) {
+                    baseTargetDir = Paths.get(DownloadSettings.getInstance().getGameDirectory(), "saves");
+                } else {
+                    baseTargetDir = Paths.get(DownloadSettings.getInstance().getAbsoluteDownloadPath(targetServer));
+                    if (isSubmissionSchematicAttachment(attachment)) {
+                        baseTargetDir = baseTargetDir.resolve("submissions");
+                    }
+                }
                 Files.createDirectories(baseTargetDir);
 
                 if (isWorldDownload) {
@@ -308,6 +315,22 @@ public class AttachmentManager {
                 throw new CompletionException(e);
             }
         }, IO_EXECUTOR);
+    }
+
+    private boolean isSubmissionSchematicAttachment(ArchiveAttachment attachment) {
+        if (attachment == null || attachment.wdl() != null) {
+            return false;
+        }
+        String downloadUrl = attachment.downloadUrl();
+        if (downloadUrl == null || downloadUrl.isBlank()) {
+            return false;
+        }
+        ServerEntry targetServer = server != null ? server : ServerDictionary.getDefaultServer();
+        if (!com.andrews.archivedownloader.network.ArchiveNetworkManager.isApiUrlForServer(targetServer, downloadUrl)) {
+            return false;
+        }
+        String lowered = downloadUrl.toLowerCase(Locale.ROOT);
+        return lowered.contains("/submission/") && lowered.contains("/attachments/");
     }
 
     private Path ensureUniqueName(Path dir, String fileName) throws Exception {

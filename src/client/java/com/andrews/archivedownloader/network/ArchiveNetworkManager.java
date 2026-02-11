@@ -2,6 +2,7 @@ package com.andrews.archivedownloader.network;
 
 import com.andrews.archivedownloader.config.ServerDictionary;
 import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
+import com.andrews.archivedownloader.config.DownloadSettings;
 import com.andrews.archivedownloader.models.ArchiveConfigJson;
 import com.andrews.archivedownloader.models.ArchiveAttachment;
 import com.andrews.archivedownloader.models.ArchiveChannel;
@@ -21,6 +22,7 @@ import com.google.gson.reflect.TypeToken;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.net.URLEncoder;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -39,6 +41,17 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ArchiveNetworkManager {
 	private static final String DEFAULT_BRANCH = "main";
+	private static final String API_SUBMISSION_CHANNEL_CATEGORY = "Submission Status";
+	private static final String API_SUBMISSION_CHANNEL_PATH_LEGACY = "__api_submission__";
+	private static final String API_SUBMISSION_STATUS_PATH_PREFIX = "__api_submission_status__/";
+	private static final List<String> SUBMISSION_STATUS_ORDER = List.of(
+		"new",
+		"need_endorsement",
+		"waiting",
+		"accepted",
+		"rejected",
+		"retracted"
+	);
 	private static final String RAW_BASE = "https://raw.githubusercontent.com";
 	private static final String MEDIA_BASE = "https://media.githubusercontent.com/media";
 	public static final String USER_AGENT = "ArchiveDownloader/1.0 (+https://github.com/Llama-Collective/Archive-Downloader)";
@@ -54,6 +67,7 @@ public class ArchiveNetworkManager {
 	private static final Map<String, Map<String, StyleInfo>> CACHED_SCHEMA_STYLES = new ConcurrentHashMap<>();
 	private static final Map<String, List<GlobalTag>> CACHED_GLOBAL_TAGS = new ConcurrentHashMap<>();
 	private static final Map<String, CompletableFuture<List<GlobalTag>>> GLOBAL_TAG_FUTURES = new ConcurrentHashMap<>();
+	private static final Map<String, List<ArchivePostSummary>> CACHED_SUBMISSION_SUMMARIES = new ConcurrentHashMap<>();
 	private static final List<GlobalTag> DEFAULT_GLOBAL_TAGS = List.of(
 		new GlobalTag("Untested", "\u2049", "#fcd34d", 0xFF8C6E00L, null),
 		new GlobalTag("Broken", "\uD83D\uDC94", "#ff6969", 0xFF8B1A1AL, null),
@@ -134,8 +148,201 @@ public class ArchiveNetworkManager {
 		return searchPosts(ServerDictionary.getDefaultServer(), query, sort, tag, null, null, null, page, itemsPerPage);
 	}
 
+	public static CompletableFuture<ArchiveSearchResult> searchSubmissionPosts(
+		ServerEntry server,
+		String query,
+		String sort,
+		String tag,
+		List<String> includeTags,
+		List<String> excludeTags,
+		List<String> channelPaths,
+		int page,
+		int itemsPerPage
+	) {
+		ServerEntry targetServer = normalizeServer(server);
+		String submissionCacheKey = serverKey(targetServer);
+		String apiBase = normalizeApiBase(targetServer.apiBase());
+		String token = normalizeApiTokenValue(DownloadSettings.getInstance().getApiToken(targetServer));
+		if (apiBase.isBlank()) {
+			return CompletableFuture.failedFuture(new RuntimeException("This server does not expose submissions API"));
+		}
+		if (token.isBlank()) {
+			return CompletableFuture.failedFuture(new RuntimeException("No API token configured for this server"));
+		}
+
+		boolean needsClientFiltering = isClientFilterRequired(query, sort, tag, includeTags, excludeTags, channelPaths);
+		List<ArchivePostSummary> cachedSummaries = CACHED_SUBMISSION_SUMMARIES.get(submissionCacheKey);
+		if (needsClientFiltering) {
+			CompletableFuture<List<ArchivePostSummary>> source = cachedSummaries != null
+				? CompletableFuture.completedFuture(cachedSummaries)
+				: fetchAllSubmissionPages(targetServer).thenApply(all -> {
+					CACHED_SUBMISSION_SUMMARIES.put(submissionCacheKey, List.copyOf(all));
+					return all;
+				});
+			return source
+				.thenApply(all -> buildFilteredSubmissionResult(all, query, sort, tag, includeTags, excludeTags, channelPaths, page, itemsPerPage));
+		}
+		if (cachedSummaries != null) {
+			return CompletableFuture.completedFuture(
+				buildFilteredSubmissionResult(cachedSummaries, query, sort, tag, includeTags, excludeTags, channelPaths, page, itemsPerPage)
+			);
+		}
+
+		int safePage = Math.max(1, page);
+		int safePageSize = Math.min(200, Math.max(1, itemsPerPage));
+		return fetchSubmissionPage(targetServer, safePage, safePageSize)
+			.thenApply(pageData -> {
+				if (pageData.totalPages() <= 1) {
+					CACHED_SUBMISSION_SUMMARIES.put(submissionCacheKey, List.copyOf(pageData.posts()));
+				}
+				Map<String, Integer> channelCounts = pageData.totalPages() <= 1
+					? computeSubmissionStatusCounts(pageData.posts())
+					: Map.of();
+				Map<String, Integer> tagCounts = pageData.totalPages() <= 1
+					? computeTagCounts(pageData.posts())
+					: Map.of();
+				return new ArchiveSearchResult(
+					pageData.posts(),
+					Math.max(1, pageData.totalPages()),
+					Math.max(0, pageData.total()),
+					channelCounts,
+					tagCounts
+				);
+			});
+	}
+
+	public static boolean hasApiAccessConfigured(ServerEntry server) {
+		ServerEntry targetServer = normalizeServer(server);
+		if (normalizeApiBase(targetServer.apiBase()).isBlank()) {
+			return false;
+		}
+		return DownloadSettings.getInstance().hasApiToken(targetServer);
+	}
+
+	public static List<String> getSubmissionStatuses() {
+		return SUBMISSION_STATUS_ORDER;
+	}
+
+	public static String submissionStatusPath(String status) {
+		return API_SUBMISSION_STATUS_PATH_PREFIX + normalizeSubmissionStatus(status);
+	}
+
+	public static String submissionStatusLabel(String status) {
+		String normalized = normalizeSubmissionStatus(status);
+		if (normalized.isEmpty()) {
+			return "Unknown";
+		}
+		String[] parts = normalized.split("_");
+		List<String> words = new ArrayList<>();
+		for (String part : parts) {
+			if (part == null || part.isBlank()) {
+				continue;
+			}
+			words.add(part.substring(0, 1).toUpperCase(Locale.ROOT) + part.substring(1));
+		}
+		return words.isEmpty() ? "Unknown" : String.join(" ", words);
+	}
+
+	public static CompletableFuture<ApiTokenValidationResult> validateApiToken(ServerEntry server, String tokenInput) {
+		ServerEntry targetServer = normalizeServer(server);
+		String apiBase = getApiBase(targetServer);
+		if (apiBase.isBlank()) {
+			return CompletableFuture.completedFuture(new ApiTokenValidationResult(
+				false,
+				"This server does not expose submissions API."
+			));
+		}
+
+		String token = normalizeApiTokenValue(tokenInput);
+		if (token.isBlank()) {
+			return CompletableFuture.completedFuture(new ApiTokenValidationResult(false, "Token is empty."));
+		}
+
+		String url = apiBase + "/submissions?page=1&pageSize=1";
+		HttpRequest request = HttpRequest.newBuilder()
+			.uri(URI.create(url))
+			.timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+			.header("Accept", "application/json")
+			.header("User-Agent", USER_AGENT)
+			.header("Authorization", "Bearer " + token)
+			.GET()
+			.build();
+
+		return HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+			.thenApply(response -> {
+				if (response.statusCode() == 200) {
+					JsonObject parsed = GSON.fromJson(response.body(), JsonObject.class);
+					if (parsed == null || (parsed.has("ok") && !parsed.get("ok").getAsBoolean())) {
+						String error = parseApiErrorMessage(response.body());
+						if (error.isBlank()) {
+							error = "API response was not successful.";
+						}
+						return new ApiTokenValidationResult(false, error);
+					}
+					return new ApiTokenValidationResult(true, "Token accepted.");
+				}
+				if (response.statusCode() == 401) {
+					return new ApiTokenValidationResult(false, "Unauthorized. Check your token.");
+				}
+				String error = parseApiErrorMessage(response.body());
+				if (error.isBlank()) {
+					error = "HTTP " + response.statusCode();
+				}
+				return new ApiTokenValidationResult(false, error);
+			})
+			.exceptionally(throwable -> {
+				Throwable root = throwable;
+				while (root.getCause() != null) {
+					root = root.getCause();
+				}
+				String message = root.getMessage() != null ? root.getMessage() : "Unable to reach API.";
+				return new ApiTokenValidationResult(false, message);
+			});
+	}
+
+	public static boolean isApiSubmissionSummary(ArchivePostSummary summary) {
+		if (summary == null || summary.channelPath() == null) {
+			return false;
+		}
+		String path = summary.channelPath();
+		return path.startsWith(API_SUBMISSION_STATUS_PATH_PREFIX) || API_SUBMISSION_CHANNEL_PATH_LEGACY.equals(path);
+	}
+
+	public static String getApiBase(ServerEntry server) {
+		return normalizeApiBase(normalizeServer(server).apiBase());
+	}
+
+	public static boolean isApiUrlForServer(ServerEntry server, String url) {
+		String apiBase = getApiBase(server);
+		if (apiBase.isBlank() || url == null || url.isBlank()) {
+			return false;
+		}
+		return url.equals(apiBase) || url.startsWith(apiBase + "/");
+	}
+
+	public static HttpRequest.Builder applyApiAuthorization(HttpRequest.Builder builder, ServerEntry server, String url) {
+		if (builder == null) {
+			return null;
+		}
+		if (!isApiUrlForServer(server, url)) {
+			return builder;
+		}
+		String token = normalizeApiTokenValue(DownloadSettings.getInstance().getApiToken(normalizeServer(server)));
+		if (!token.isBlank()) {
+			builder.header("Authorization", "Bearer " + token);
+		}
+		return builder;
+	}
+
 	public static CompletableFuture<ArchivePostDetail> getPostDetails(ServerEntry server, ArchivePostSummary summary) {
 		ServerEntry targetServer = normalizeServer(server);
+		if (summary == null) {
+			return CompletableFuture.failedFuture(new RuntimeException("Post summary is missing"));
+		}
+		if (isApiSubmissionSummary(summary)) {
+			return fetchSubmissionDetail(targetServer, summary.id())
+				.thenApply(data -> toSubmissionPostDetail(targetServer, summary, data));
+		}
 		return fetchEntryDataAsync(targetServer, summary.channelPath(), summary.entryPath())
 			.thenApply(data -> toPostDetail(targetServer, summary, data));
 	}
@@ -176,12 +383,14 @@ public class ArchiveNetworkManager {
 		CACHED_INDEXES.remove(key);
 		INDEX_FUTURES.remove(key);
 		CACHED_SCHEMA_STYLES.remove(key);
+		CACHED_SUBMISSION_SUMMARIES.remove(key);
 	}
 
 	public static void clearCache() {
 		CACHED_INDEXES.clear();
 		INDEX_FUTURES.clear();
 		CACHED_SCHEMA_STYLES.clear();
+		CACHED_SUBMISSION_SUMMARIES.clear();
 	}
 
 	private static CompletableFuture<List<GlobalTag>> loadGlobalTagsAsync(ServerEntry server) {
@@ -419,6 +628,537 @@ public class ArchiveNetworkManager {
 		long updated = post.updatedAt();
 		if (updated > 0) return updated;
 		return post.archivedAt();
+	}
+
+	private static boolean isClientFilterRequired(
+		String query,
+		String sort,
+		String tag,
+		List<String> includeTags,
+		List<String> excludeTags,
+		List<String> channelPaths
+	) {
+		if (!safeTrim(query).isEmpty()) {
+			return true;
+		}
+		if (!safeTrim(tag).isEmpty()) {
+			return true;
+		}
+		if (includeTags != null && !includeTags.isEmpty()) {
+			return true;
+		}
+		if (excludeTags != null && !excludeTags.isEmpty()) {
+			return true;
+		}
+		if (channelPaths != null && !channelPaths.isEmpty()) {
+			return true;
+		}
+		String selectedSort = safeTrim(sort);
+		return !selectedSort.isEmpty() && !"newest".equalsIgnoreCase(selectedSort);
+	}
+
+	private static CompletableFuture<List<ArchivePostSummary>> fetchAllSubmissionPages(ServerEntry server) {
+		final int pageSize = 200;
+		return fetchSubmissionPage(server, 1, pageSize).thenCompose(firstPage -> {
+			if (firstPage.totalPages() <= 1) {
+				return CompletableFuture.completedFuture(firstPage.posts());
+			}
+
+			List<CompletableFuture<SubmissionPage>> remaining = new ArrayList<>();
+			for (int page = 2; page <= firstPage.totalPages(); page++) {
+				remaining.add(fetchSubmissionPage(server, page, pageSize));
+			}
+
+			CompletableFuture<Void> combined = CompletableFuture.allOf(remaining.toArray(new CompletableFuture[0]));
+			return combined.thenApply(ignored -> {
+				List<SubmissionPage> pages = new ArrayList<>();
+				pages.add(firstPage);
+				for (CompletableFuture<SubmissionPage> future : remaining) {
+					pages.add(future.join());
+				}
+				pages.sort(Comparator.comparingInt(SubmissionPage::page));
+
+				List<ArchivePostSummary> all = new ArrayList<>();
+				for (SubmissionPage page : pages) {
+					if (page.posts() != null && !page.posts().isEmpty()) {
+						all.addAll(page.posts());
+					}
+				}
+				return all;
+			});
+		});
+	}
+
+	private static ArchiveSearchResult buildFilteredSubmissionResult(
+		List<ArchivePostSummary> posts,
+		String query,
+		String sort,
+		String tag,
+		List<String> includeTags,
+		List<String> excludeTags,
+		List<String> channelPaths,
+		int page,
+		int itemsPerPage
+	) {
+		List<ArchivePostSummary> filtered = new ArrayList<>(filterPosts(posts, query, tag, includeTags, excludeTags, channelPaths));
+		// Preserve API/server ordering for submissions review mode.
+
+		int safeItemsPerPage = Math.max(itemsPerPage, 1);
+		int totalItems = filtered.size();
+		int totalPages = Math.max(1, (int) Math.ceil(totalItems / (double) safeItemsPerPage));
+		int startIndex = Math.max(0, (Math.max(page, 1) - 1) * safeItemsPerPage);
+		int endIndex = Math.min(filtered.size(), startIndex + safeItemsPerPage);
+		List<ArchivePostSummary> pageItems = filtered.subList(
+			Math.min(startIndex, filtered.size()),
+			Math.min(endIndex, filtered.size())
+		);
+
+		Map<String, Integer> channelCounts = computeSubmissionStatusCounts(filtered);
+		Map<String, Integer> tagCounts = computeTagCounts(filtered);
+
+		return new ArchiveSearchResult(pageItems, totalPages, totalItems, channelCounts, tagCounts);
+	}
+
+	private static Map<String, Integer> computeTagCounts(List<ArchivePostSummary> posts) {
+		Map<String, Integer> tagCounts = new LinkedHashMap<>();
+		if (posts == null || posts.isEmpty()) {
+			return tagCounts;
+		}
+		for (ArchivePostSummary post : posts) {
+			if (post == null || post.tags() == null) {
+				continue;
+			}
+			for (String tag : post.tags()) {
+				String key = safeTrim(tag).toLowerCase(Locale.ROOT);
+				if (!key.isEmpty()) {
+					tagCounts.put(key, tagCounts.getOrDefault(key, 0) + 1);
+				}
+			}
+		}
+		return tagCounts;
+	}
+
+	private static Map<String, Integer> computeSubmissionStatusCounts(List<ArchivePostSummary> posts) {
+		Map<String, Integer> channelCounts = new LinkedHashMap<>();
+		for (String status : SUBMISSION_STATUS_ORDER) {
+			channelCounts.put(submissionStatusPath(status), 0);
+		}
+		if (posts == null || posts.isEmpty()) {
+			return channelCounts;
+		}
+		for (ArchivePostSummary post : posts) {
+			if (post == null) {
+				continue;
+			}
+			String path = normalizeSubmissionPath(post.channelPath());
+			channelCounts.put(path, channelCounts.getOrDefault(path, 0) + 1);
+		}
+		return channelCounts;
+	}
+
+	private static CompletableFuture<SubmissionPage> fetchSubmissionPage(ServerEntry server, int page, int pageSize) {
+		String apiBase = getApiBase(server);
+		if (apiBase.isBlank()) {
+			return CompletableFuture.failedFuture(new RuntimeException("Missing apiBase for server"));
+		}
+		String path = "/submissions?page=" + Math.max(1, page) + "&pageSize=" + Math.max(1, Math.min(200, pageSize));
+		return fetchApiJsonAsync(server, apiBase + path).thenApply(response -> {
+			JsonObject paginationObj = response.has("pagination") && response.get("pagination").isJsonObject()
+				? response.getAsJsonObject("pagination")
+				: new JsonObject();
+
+			int resolvedPage = getInt(paginationObj, "page", Math.max(1, page));
+			int resolvedPageSize = getInt(paginationObj, "pageSize", Math.max(1, pageSize));
+			int total = getInt(paginationObj, "total", 0);
+			int totalPages = getInt(paginationObj, "totalPages", 1);
+
+			List<ArchivePostSummary> summaries = new ArrayList<>();
+			JsonArray submissions = response.has("submissions") && response.get("submissions").isJsonArray()
+				? response.getAsJsonArray("submissions")
+				: new JsonArray();
+
+			for (JsonElement element : submissions) {
+				if (element == null || !element.isJsonObject()) {
+					continue;
+				}
+				ApiSubmissionSummaryData raw = GSON.fromJson(element, ApiSubmissionSummaryData.class);
+				ArchivePostSummary mapped = toSubmissionSummary(raw);
+				if (mapped != null) {
+					summaries.add(mapped);
+				}
+			}
+			return new SubmissionPage(summaries, resolvedPage, resolvedPageSize, total, Math.max(1, totalPages));
+		});
+	}
+
+	private static CompletableFuture<ApiSubmissionDetailsData> fetchSubmissionDetail(ServerEntry server, String submissionId) {
+		String id = safeTrim(submissionId);
+		if (id.isEmpty()) {
+			return CompletableFuture.failedFuture(new RuntimeException("Submission id is missing"));
+		}
+		String apiBase = getApiBase(server);
+		if (apiBase.isBlank()) {
+			return CompletableFuture.failedFuture(new RuntimeException("Missing apiBase for server"));
+		}
+		String url = apiBase + "/submission/" + encodePathSegment(id);
+		return fetchApiJsonAsync(server, url).thenApply(response -> {
+			if (!response.has("submission") || !response.get("submission").isJsonObject()) {
+				throw new CompletionException(new RuntimeException("Malformed submission detail response"));
+			}
+			ApiSubmissionDetailsData data = GSON.fromJson(response.getAsJsonObject("submission"), ApiSubmissionDetailsData.class);
+			if (data == null) {
+				throw new CompletionException(new RuntimeException("Submission payload is empty"));
+			}
+			return data;
+		});
+	}
+
+	private static CompletableFuture<JsonObject> fetchApiJsonAsync(ServerEntry server, String url) {
+		HttpRequest.Builder builder = HttpRequest.newBuilder()
+			.uri(URI.create(url))
+			.timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+			.header("Accept", "application/json")
+			.header("User-Agent", USER_AGENT)
+			.GET();
+		applyApiAuthorization(builder, server, url);
+
+		return HTTP_CLIENT.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString())
+			.thenApply(response -> {
+				if (response.statusCode() != 200) {
+					String error = parseApiErrorMessage(response.body());
+					if (error.isBlank()) {
+						error = "HTTP " + response.statusCode();
+					}
+					throw new CompletionException(new RuntimeException("API error: " + error));
+				}
+				JsonObject parsed = GSON.fromJson(response.body(), JsonObject.class);
+				if (parsed == null) {
+					throw new CompletionException(new RuntimeException("Empty API response"));
+				}
+				if (parsed.has("ok") && parsed.get("ok").isJsonPrimitive() && !parsed.get("ok").getAsBoolean()) {
+					String error = parsed.has("error") ? parsed.get("error").getAsString() : "Unknown API error";
+					throw new CompletionException(new RuntimeException("API error: " + error));
+				}
+				return parsed;
+			});
+	}
+
+	private static ArchivePostSummary toSubmissionSummary(ApiSubmissionSummaryData submission) {
+		if (submission == null) {
+			return null;
+		}
+		String id = safeTrim(submission.id);
+		if (id.isEmpty()) {
+			return null;
+		}
+		long createdAt = submission.timestamp != null && submission.timestamp.createdMs != null
+			? submission.timestamp.createdMs
+			: 0L;
+		long updatedAt = submission.timestamp != null && submission.timestamp.updatedMs != null
+			? submission.timestamp.updatedMs
+			: createdAt;
+		String title = safeTrim(submission.name);
+		if (title.isEmpty()) {
+			title = id;
+		}
+		String status = normalizeSubmissionStatus(submission.status);
+		return new ArchivePostSummary(
+			id,
+			title,
+			submissionStatusLabel(status),
+			status.toUpperCase(Locale.ROOT),
+			API_SUBMISSION_CHANNEL_CATEGORY,
+			submissionStatusPath(status),
+			id,
+			status,
+			toStringArray(submission.tags),
+			toStringArray(submission.authors),
+			createdAt,
+			updatedAt
+		);
+	}
+
+	private static ArchivePostDetail toSubmissionPostDetail(ServerEntry server, ArchivePostSummary summary, ApiSubmissionDetailsData data) {
+		String detailId = !safeTrim(data.id).isEmpty() ? safeTrim(data.id) : safeTrim(summary.id());
+		long createdAt = data.timestamp != null && data.timestamp.createdMs != null
+			? data.timestamp.createdMs
+			: summary.archivedAt();
+		long updatedAt = data.timestamp != null && data.timestamp.updatedMs != null
+			? data.timestamp.updatedMs
+			: Math.max(summary.updatedAt(), createdAt);
+
+		List<String> authorNames = toAuthorNames(data.authors);
+		if (authorNames.isEmpty() && summary.authors() != null) {
+			authorNames = Arrays.asList(summary.authors());
+		}
+		List<String> tagNames = toTagNames(data.tags);
+		if (tagNames.isEmpty() && summary.tags() != null) {
+			tagNames = Arrays.asList(summary.tags());
+		}
+		String status = normalizeSubmissionStatus(!safeTrim(data.status).isEmpty() ? data.status : summary.code());
+
+		ArchivePostSummary enrichedSummary = new ArchivePostSummary(
+			!detailId.isEmpty() ? detailId : summary.id(),
+			!safeTrim(data.name).isEmpty() ? safeTrim(data.name) : summary.title(),
+			submissionStatusLabel(status),
+			status.toUpperCase(Locale.ROOT),
+			API_SUBMISSION_CHANNEL_CATEGORY,
+			submissionStatusPath(status),
+			!detailId.isEmpty() ? detailId : summary.entryPath(),
+			status,
+			tagNames.toArray(new String[0]),
+			authorNames.toArray(new String[0]),
+			createdAt,
+			updatedAt
+		);
+
+		List<String> imageUrls = new ArrayList<>();
+		List<ArchiveImageInfo> imageInfos = new ArrayList<>();
+		if (data.images != null) {
+			for (ApiImageData image : data.images) {
+				if (image == null) {
+					continue;
+				}
+				String imageUrl = buildSubmissionImageUrl(server, detailId, image);
+				if (imageUrl.isBlank()) {
+					continue;
+				}
+				imageUrls.add(imageUrl);
+				imageInfos.add(new ArchiveImageInfo(imageUrl, image.description, image.width, image.height));
+			}
+		}
+
+		List<ArchiveAttachment> attachments = new ArrayList<>();
+		if (data.attachments != null) {
+			for (ApiAttachmentData attachment : data.attachments) {
+				if (attachment == null) {
+					continue;
+				}
+				ArchiveAttachment.YoutubeInfo youtubeInfo = null;
+				if (attachment.youtube != null) {
+					youtubeInfo = new ArchiveAttachment.YoutubeInfo(
+						attachment.youtube.title,
+						attachment.youtube.author_name,
+						attachment.youtube.author_url
+					);
+				}
+				boolean canDownload = attachment.canDownload == null || attachment.canDownload;
+				String downloadUrl = buildSubmissionAttachmentUrl(server, detailId, attachment);
+				String sizeText = attachment.litematic != null ? attachment.litematic.size : null;
+				attachments.add(new ArchiveAttachment(
+					!safeTrim(attachment.name).isEmpty() ? attachment.name : "Attachment",
+					downloadUrl,
+					attachment.contentType,
+					canDownload,
+					sizeText,
+					attachment.description,
+					attachment.litematic != null ? new ArchiveAttachment.LitematicInfo(
+						attachment.litematic.version,
+						attachment.litematic.size,
+						attachment.litematic.error
+					) : null,
+					attachment.wdl != null ? new ArchiveAttachment.WdlInfo(
+						attachment.wdl.version,
+						attachment.wdl.error
+					) : null,
+					youtubeInfo
+				));
+			}
+		}
+
+		JsonObject records = data.revision != null ? data.revision.records : null;
+		Map<String, StyleInfo> recordStyles = data.revision != null && data.revision.styles != null
+			? data.revision.styles
+			: Map.of();
+		List<ArchiveRecordSection> recordSections = toRecordSections(records, Map.of(), recordStyles);
+
+		DiscordPostReference discordPost = null;
+		if (!safeTrim(data.threadUrl).isEmpty() || !safeTrim(data.threadId).isEmpty()) {
+			discordPost = new DiscordPostReference(
+				null,
+				safeTrim(data.threadId),
+				List.of(),
+				safeTrim(data.threadUrl),
+				null,
+				null
+			);
+		}
+
+		return new ArchivePostDetail(
+			enrichedSummary,
+			authorNames,
+			imageUrls,
+			imageInfos,
+			attachments,
+			discordPost,
+			recordSections,
+			createdAt,
+			updatedAt
+		);
+	}
+
+	private static String[] toStringArray(List<String> values) {
+		if (values == null || values.isEmpty()) {
+			return new String[0];
+		}
+		List<String> sanitized = new ArrayList<>();
+		for (String value : values) {
+			String trimmed = safeTrim(value);
+			if (!trimmed.isEmpty()) {
+				sanitized.add(trimmed);
+			}
+		}
+		return sanitized.toArray(new String[0]);
+	}
+
+	private static List<String> toAuthorNames(List<ApiAuthorData> authors) {
+		if (authors == null || authors.isEmpty()) {
+			return List.of();
+		}
+		List<String> names = new ArrayList<>();
+		for (ApiAuthorData author : authors) {
+			if (author == null) {
+				continue;
+			}
+			String display = !safeTrim(author.displayName).isEmpty() ? safeTrim(author.displayName) : safeTrim(author.username);
+			if (!display.isEmpty() && !names.contains(display)) {
+				names.add(display);
+			}
+		}
+		return names;
+	}
+
+	private static List<String> toTagNames(List<ApiTagData> tags) {
+		if (tags == null || tags.isEmpty()) {
+			return List.of();
+		}
+		List<String> names = new ArrayList<>();
+		for (ApiTagData tag : tags) {
+			if (tag == null) {
+				continue;
+			}
+			String name = safeTrim(tag.name);
+			if (!name.isEmpty() && !names.contains(name)) {
+				names.add(name);
+			}
+		}
+		return names;
+	}
+
+	private static String buildSubmissionImageUrl(ServerEntry server, String submissionId, ApiImageData image) {
+		if (image == null) {
+			return "";
+		}
+		String imageId = safeTrim(image.id);
+		if (!imageId.isEmpty() && !safeTrim(submissionId).isEmpty()) {
+			return buildSubmissionApiUrl(server, submissionId, "images", imageId);
+		}
+		if (!safeTrim(image.url).isEmpty()) {
+			return image.url;
+		}
+		return "";
+	}
+
+	private static String buildSubmissionAttachmentUrl(ServerEntry server, String submissionId, ApiAttachmentData attachment) {
+		if (attachment == null) {
+			return "";
+		}
+		String attachmentId = safeTrim(attachment.id);
+		if (!attachmentId.isEmpty() && !safeTrim(submissionId).isEmpty()) {
+			return buildSubmissionApiUrl(server, submissionId, "attachments", attachmentId);
+		}
+		if (!safeTrim(attachment.downloadUrl).isEmpty()) {
+			return attachment.downloadUrl;
+		}
+		if (!safeTrim(attachment.url).isEmpty()) {
+			return attachment.url;
+		}
+		return "";
+	}
+
+	private static String buildSubmissionApiUrl(ServerEntry server, String submissionId, String resourceType, String resourceId) {
+		String apiBase = getApiBase(server);
+		if (apiBase.isBlank()) {
+			return "";
+		}
+		return apiBase
+			+ "/submission/" + encodePathSegment(submissionId)
+			+ "/" + resourceType
+			+ "/" + encodePathSegment(resourceId);
+	}
+
+	private static int getInt(JsonObject obj, String key, int fallback) {
+		if (obj == null || key == null || key.isEmpty() || !obj.has(key)) {
+			return fallback;
+		}
+		try {
+			return obj.get(key).getAsInt();
+		} catch (Exception ignored) {
+			return fallback;
+		}
+	}
+
+	private static String parseApiErrorMessage(String body) {
+		String text = safeTrim(body);
+		if (text.isEmpty()) {
+			return "";
+		}
+		try {
+			JsonObject parsed = GSON.fromJson(text, JsonObject.class);
+			if (parsed != null && parsed.has("error")) {
+				return safeTrim(parsed.get("error").getAsString());
+			}
+		} catch (Exception ignored) {
+		}
+		return text.length() > 160 ? text.substring(0, 160) : text;
+	}
+
+	private static String normalizeApiBase(String apiBase) {
+		String normalized = safeTrim(apiBase);
+		while (normalized.endsWith("/")) {
+			normalized = normalized.substring(0, normalized.length() - 1);
+		}
+		return normalized;
+	}
+
+	private static String normalizeSubmissionStatus(String status) {
+		String normalized = safeTrim(status).toLowerCase(Locale.ROOT);
+		if (normalized.isEmpty()) {
+			return "unknown";
+		}
+		return normalized;
+	}
+
+	private static String normalizeSubmissionPath(String path) {
+		String normalizedPath = safeTrim(path);
+		if (normalizedPath.startsWith(API_SUBMISSION_STATUS_PATH_PREFIX)) {
+			String status = normalizedPath.substring(API_SUBMISSION_STATUS_PATH_PREFIX.length());
+			return submissionStatusPath(status);
+		}
+		if (API_SUBMISSION_CHANNEL_PATH_LEGACY.equals(normalizedPath)) {
+			return submissionStatusPath("unknown");
+		}
+		if (normalizedPath.contains("/")) {
+			String[] parts = normalizedPath.split("/");
+			return submissionStatusPath(parts[parts.length - 1]);
+		}
+		return submissionStatusPath(normalizedPath);
+	}
+
+	private static String normalizeApiTokenValue(String tokenInput) {
+		String token = safeTrim(tokenInput);
+		if (token.regionMatches(true, 0, "Bearer ", 0, 7)) {
+			token = token.substring(7).trim();
+		}
+		return token;
+	}
+
+	private static String encodePathSegment(String value) {
+		return URLEncoder.encode(value != null ? value : "", StandardCharsets.UTF_8).replace("+", "%20");
+	}
+
+	private static String safeTrim(String value) {
+		return value != null ? value.trim() : "";
 	}
 
 	private static ArchivePostDetail toPostDetail(ServerEntry server, ArchivePostSummary summary, ArchiveEntryData data) {
@@ -994,6 +1734,90 @@ public class ArchiveNetworkManager {
 		String path,
 		String mainImagePath
 	) {
+	}
+
+	private record SubmissionPage(
+		List<ArchivePostSummary> posts,
+		int page,
+		int pageSize,
+		int total,
+		int totalPages
+	) {
+	}
+
+	public record ApiTokenValidationResult(
+		boolean valid,
+		String message
+	) {
+	}
+
+	private static class ApiSubmissionTimestampData {
+		Long createdMs;
+		Long updatedMs;
+	}
+
+	private static class ApiSubmissionSummaryData {
+		String id;
+		String name;
+		String status;
+		ApiSubmissionTimestampData timestamp;
+		List<String> authors;
+		List<String> tags;
+	}
+
+	private static class ApiSubmissionRevisionData {
+		@SuppressWarnings("unused")
+		String id;
+		@SuppressWarnings("unused")
+		Long timestamp;
+		JsonObject records;
+		Map<String, StyleInfo> styles;
+	}
+
+	private static class ApiSubmissionDetailsData {
+		String id;
+		String name;
+		String status;
+		String threadId;
+		String threadUrl;
+		List<ApiTagData> tags;
+		List<ApiAuthorData> authors;
+		List<ApiImageData> images;
+		List<ApiAttachmentData> attachments;
+		ApiSubmissionRevisionData revision;
+		ApiSubmissionTimestampData timestamp;
+	}
+
+	private static class ApiTagData {
+		@SuppressWarnings("unused")
+		String id;
+		String name;
+	}
+
+	private static class ApiAuthorData {
+		String username;
+		String displayName;
+	}
+
+	private static class ApiImageData {
+		String id;
+		String description;
+		String url;
+		Integer width;
+		Integer height;
+	}
+
+	private static class ApiAttachmentData {
+		String id;
+		String name;
+		String url;
+		String downloadUrl;
+		String description;
+		String contentType;
+		ArchiveLitematicInfo litematic;
+		ArchiveWdlInfo wdl;
+		ArchiveYoutubeInfo youtube;
+		Boolean canDownload;
 	}
 
 	private static class ArchiveEntryData {
