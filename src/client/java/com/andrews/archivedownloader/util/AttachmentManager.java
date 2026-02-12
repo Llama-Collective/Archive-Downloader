@@ -250,18 +250,23 @@ public class AttachmentManager {
                 : throwable;
         client.execute(() -> {
             String errorMsg;
+            String exceptionMessage = e != null ? e.getMessage() : null;
             if (e instanceof java.net.UnknownHostException) {
                 errorMsg = "✗ Error: No internet connection";
             } else if (e instanceof java.net.SocketTimeoutException) {
                 errorMsg = "✗ Error: Connection timeout";
             } else if (e instanceof java.io.FileNotFoundException) {
                 errorMsg = "✗ Error: File not found";
-            } else if (e instanceof java.io.IOException && e.getMessage().contains("Permission denied")) {
+            } else if (e instanceof java.io.IOException
+                    && exceptionMessage != null
+                    && exceptionMessage.contains("Permission denied")) {
                 errorMsg = "✗ Error: Cannot write to disk (permission denied)";
-            } else if (e instanceof java.io.IOException && e.getMessage().contains("No space")) {
+            } else if (e instanceof java.io.IOException
+                    && exceptionMessage != null
+                    && exceptionMessage.contains("No space")) {
                 errorMsg = "✗ Error: Not enough disk space";
             } else {
-                String msg = e.getMessage();
+                String msg = exceptionMessage;
                 if (msg != null && msg.length() > 40) {
                     msg = msg.substring(0, 37) + "...";
                 }
@@ -269,8 +274,10 @@ public class AttachmentManager {
             }
 
             downloadStatus = errorMsg;
-            System.err.println("Failed to download schematic: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Failed to download schematic: " + exceptionMessage);
+            if (e != null) {
+                e.printStackTrace();
+            }
             showToast("Download failed", errorMsg);
         });
     }
