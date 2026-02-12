@@ -4,11 +4,11 @@ import org.lwjgl.glfw.GLFW;
 
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.input.MouseButtonEvent;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
 
-public class ScrollBar implements Renderable {
+public class ScrollBar implements UiRenderable {
     private static final int MIN_HANDLE_HEIGHT = 20;
 
     private final int x;
@@ -74,7 +74,7 @@ public class ScrollBar implements Renderable {
                mouseY >= y && mouseY < y + height;
     }
 
-    public boolean updateAndRender(GuiGraphics context, int mouseX, int mouseY, float delta, long windowHandle) {
+    public boolean updateAndRender(UiRenderContext context, int mouseX, int mouseY, float delta, long windowHandle) {
         if (!isVisible()) return false;
 
         boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
@@ -125,7 +125,7 @@ public class ScrollBar implements Renderable {
         return scrollChanged;
     }
 
-    private void drawScrollBar(GuiGraphics context, double handleHeight) {
+    private void drawScrollBar(UiRenderContext context, double handleHeight) {
         RenderUtil.fillRect(context, x, y, x + UITheme.Dimensions.SCROLLBAR_WIDTH, y + height, UITheme.Colors.SCROLLBAR_BG);
 
         double handleY = getHandleY();
@@ -134,14 +134,14 @@ public class ScrollBar implements Renderable {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
         if (!isVisible()) return;
 
         isHovered = isMouseOverHandle(mouseX, mouseY);
         drawScrollBar(context, getHandleHeight());
     }
 
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         int button = click.button();
@@ -170,7 +170,7 @@ public class ScrollBar implements Renderable {
         return false;
     }
     
-    public boolean mouseReleased(MouseButtonEvent click) {
+    public boolean mouseReleased(UiMouseEvent click) {
         if (click.button() == 0 && isDragging) {
             isDragging = false;
             return true;
@@ -178,7 +178,7 @@ public class ScrollBar implements Renderable {
         return false;
     }
     
-    public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
+    public boolean mouseDragged(UiMouseEvent click, double offsetX, double offsetY) {
         // if (!isDragging) return false;
         // double mouseY = click.y();
         // double maxHandleY = getMaxHandleY();

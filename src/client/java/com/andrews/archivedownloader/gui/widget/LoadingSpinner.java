@@ -1,10 +1,10 @@
 package com.andrews.archivedownloader.gui.widget;
 
 import com.andrews.archivedownloader.util.RenderUtil;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
 
-public class LoadingSpinner implements Renderable {
+public class LoadingSpinner implements UiRenderable {
 	private static final int SPINNER_SIZE = 32;
 	private static final int BLOCK_SIZE = 3;
 	private static final int NUM_BLOCKS = 8;
@@ -32,7 +32,7 @@ public class LoadingSpinner implements Renderable {
 	}
 
 	@Override
-	public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+	public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
 		animationTime += FADE_SPEED;
 		if (animationTime >= NUM_BLOCKS) {
 			animationTime -= NUM_BLOCKS;

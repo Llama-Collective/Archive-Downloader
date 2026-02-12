@@ -5,9 +5,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.input.MouseButtonEvent;
+import com.andrews.archivedownloader.wrapper.gui.UiFont;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
 import com.andrews.archivedownloader.config.ServerDictionary;
 import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
 import com.andrews.archivedownloader.gui.theme.UITheme;
@@ -63,7 +63,7 @@ public class TagFilterWidget {
         this.server = server != null ? server : ServerDictionary.getDefaultServer();
     }
 
-    public void render(GuiGraphics context, Font font, int mouseX, int mouseY, float delta, long windowHandle) {
+    public void render(UiRenderContext renderContext, UiFont font, int mouseX, int mouseY, float delta, long windowHandle) {
         if (scrollBar == null) {
             scrollBar = new ScrollBar(x + width - UITheme.Dimensions.SCROLLBAR_WIDTH - UITheme.Dimensions.BORDER_WIDTH,
                     y + rowHeight, height - rowHeight - UITheme.Dimensions.PADDING);
@@ -78,21 +78,21 @@ public class TagFilterWidget {
 
         int innerWidth = width;
 
-        RenderUtil.fillRect(context, x, y, x + innerWidth, y + boxHeight, UITheme.Colors.PANEL_BG_SECONDARY);
-        RenderUtil.fillRect(context, x, y, x + innerWidth, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
-        RenderUtil.fillRect(context, x, y, x + UITheme.Dimensions.BORDER_WIDTH, y + boxHeight, UITheme.Colors.BUTTON_BORDER);
-        RenderUtil.fillRect(context, x + innerWidth - UITheme.Dimensions.BORDER_WIDTH, y, x + innerWidth, y + boxHeight,
+        RenderUtil.fillRect(renderContext, x, y, x + innerWidth, y + boxHeight, UITheme.Colors.PANEL_BG_SECONDARY);
+        RenderUtil.fillRect(renderContext, x, y, x + innerWidth, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, x, y, x + UITheme.Dimensions.BORDER_WIDTH, y + boxHeight, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, x + innerWidth - UITheme.Dimensions.BORDER_WIDTH, y, x + innerWidth, y + boxHeight,
                 UITheme.Colors.BUTTON_BORDER);
-        RenderUtil.fillRect(context, x, y + boxHeight - UITheme.Dimensions.BORDER_WIDTH, x + innerWidth, y + boxHeight,
+        RenderUtil.fillRect(renderContext, x, y + boxHeight - UITheme.Dimensions.BORDER_WIDTH, x + innerWidth, y + boxHeight,
                 UITheme.Colors.BUTTON_BORDER);
 
-        RenderUtil.drawScaledString(context, "Tags", x + UITheme.Dimensions.PADDING, y + 4, UITheme.Colors.TEXT_PRIMARY,
+        RenderUtil.drawScaledString(renderContext, "Tags", x + UITheme.Dimensions.PADDING, y + 4, UITheme.Colors.TEXT_PRIMARY,
                 0.9f);
 
         int clipTop = y + rowHeight;
         int clipBottom = y + boxHeight - UITheme.Dimensions.PADDING;
         int currentY = y + rowHeight - (int) scrollOffset;
-        RenderUtil.enableScissor(context, x + 1, clipTop, x + innerWidth - 1, clipBottom);
+        RenderUtil.enableScissor(renderContext, x + 1, clipTop, x + innerWidth - 1, clipBottom);
 
         int scrollbarWidth = scrollBar.isVisible() ? UITheme.Dimensions.SCROLLBAR_WIDTH : 0;
 
@@ -105,22 +105,22 @@ public class TagFilterWidget {
                 bgColor = 0x55cd3232;
             }
             if (currentY + rowHeight >= clipTop && currentY <= clipBottom) {
-                RenderUtil.fillRect(context, x + 1, currentY, x + innerWidth - 1, currentY + rowHeight, bgColor);
+                RenderUtil.fillRect(renderContext, x + 1, currentY, x + innerWidth - 1, currentY + rowHeight, bgColor);
 
                 int swatchColor = getTagSwatchColor(tag);
                 int textColor = UITheme.Colors.TEXT_PRIMARY;
-                int textHeight = (int) (font.lineHeight * 0.85f);
+                int textHeight = (int) (font.lineHeight() * 0.85f);
                 int centerOffset = (rowHeight - textHeight) / 2;
                 String displayTag = TagUtil.formatTagLabel(tag, server);
-                RenderUtil.fillRect(context, x + UITheme.Dimensions.PADDING, currentY + 4, x + UITheme.Dimensions.PADDING + 6,
+                RenderUtil.fillRect(renderContext, x + UITheme.Dimensions.PADDING, currentY + 4, x + UITheme.Dimensions.PADDING + 6,
                         currentY + rowHeight - 4, swatchColor);
-                RenderUtil.drawScaledString(context, displayTag, x + UITheme.Dimensions.PADDING + 10, currentY + centerOffset,
+                RenderUtil.drawScaledString(renderContext, displayTag, x + UITheme.Dimensions.PADDING + 10, currentY + centerOffset,
                         textColor, 0.85f, innerWidth - 50);
 
                 Integer count = counts.get(tag.toLowerCase());
                 if (count != null) {
                     String countText = String.valueOf(count);
-                    RenderUtil.drawString(context, font, countText,
+                    RenderUtil.drawString(renderContext, font, countText,
                             x + innerWidth - UITheme.Dimensions.PADDING - font.width(countText) - scrollbarWidth,
                             currentY + 4, UITheme.Colors.TEXT_SUBTITLE);
                 }
@@ -130,7 +130,7 @@ public class TagFilterWidget {
             currentY += rowHeight;
         }
 
-        RenderUtil.disableScissor(context);
+        RenderUtil.disableScissor(renderContext);
 
         if (scrollBar != null) {
             scrollBar.setScrollData(contentHeight, boxHeight);
@@ -142,9 +142,9 @@ public class TagFilterWidget {
             }
             boolean changed = false;
             if (windowHandle != 0L) {
-                changed = scrollBar.updateAndRender(context, mouseX, mouseY, delta, windowHandle);
+                changed = scrollBar.updateAndRender(renderContext, mouseX, mouseY, delta, windowHandle);
             } else {
-                scrollBar.render(context, mouseX, mouseY, delta);
+                scrollBar.render(renderContext, mouseX, mouseY, delta);
             }
             if (changed || scrollBar.isDragging()) {
                 scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
@@ -152,7 +152,7 @@ public class TagFilterWidget {
         }
     }
 
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         if (scrollBar != null && scrollBar.mouseClicked(click, doubled)) {

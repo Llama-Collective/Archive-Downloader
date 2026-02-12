@@ -3,8 +3,8 @@ package com.andrews.archivedownloader.gui.widget;
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.models.ArchiveChannel;
 import com.andrews.archivedownloader.util.RenderUtil;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import com.andrews.archivedownloader.wrapper.gui.UiFont;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
 
 public class ChannelDescriptionWidget {
     private int x;
@@ -24,7 +24,7 @@ public class ChannelDescriptionWidget {
         this.channel = channel;
     }
 
-    public void render(GuiGraphics context, Font font) {
+    public void render(UiRenderContext context, UiFont font) {
         RenderUtil.fillRect(context, x, y, x + width, y + height, UITheme.Colors.PANEL_BG_SECONDARY);
         RenderUtil.fillRect(context, x, y, x + width, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
         RenderUtil.fillRect(context, x, y, x + UITheme.Dimensions.BORDER_WIDTH, y + height, UITheme.Colors.BUTTON_BORDER);

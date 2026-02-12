@@ -2,17 +2,16 @@ package com.andrews.archivedownloader.gui.widget;
 
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
-
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.Component;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.text.UiText;
 
 import org.lwjgl.glfw.GLFW;
 
-public class UpdateAvailablePopup implements Renderable, GuiEventListener {
+public class UpdateAvailablePopup implements UiRenderable, UiEventListener {
     private static final int POPUP_WIDTH = 420;
 
     private final String title;
@@ -36,11 +35,11 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
         this.onOpenModPage = onOpenModPage != null ? onOpenModPage : () -> {};
         this.onClose = onClose != null ? onClose : () -> {};
 
-        Minecraft client = Minecraft.getInstance();
+        UiMinecraftClient client = UiMinecraftClient.getInstance();
         int textWidth = POPUP_WIDTH - UITheme.Dimensions.PADDING * 2;
         this.messageHeight = Math.max(
             UITheme.Typography.LINE_HEIGHT,
-            RenderUtil.getWrappedTextHeight(client.font, this.message, textWidth)
+            RenderUtil.getWrappedTextHeight(client.uiFont(), this.message, textWidth)
         );
 
         this.popupHeight =
@@ -52,8 +51,8 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
             UITheme.Dimensions.BUTTON_HEIGHT +
             UITheme.Dimensions.PADDING;
 
-        int screenHeight = client.getWindow().getGuiScaledHeight();
-		int screenWidth = client.getWindow().getGuiScaledWidth();
+        int screenHeight = client.guiScaledHeight();
+		int screenWidth = client.guiScaledWidth();
         this.x = (screenWidth - POPUP_WIDTH) / 2;
         this.y = (screenHeight - popupHeight) / 2;
 
@@ -69,7 +68,7 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
             buttonY,
             buttonWidth,
             UITheme.Dimensions.BUTTON_HEIGHT,
-            Component.nullToEmpty("Later"),
+            UiText.of("Later"),
             button -> onClose.run()
         );
 
@@ -78,15 +77,16 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
             buttonY,
             buttonWidth,
             UITheme.Dimensions.BUTTON_HEIGHT,
-            Component.nullToEmpty("Open Mod Page"),
+            UiText.of("Open Mod Page"),
             button -> onOpenModPage.run()
         );
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        Minecraft client = Minecraft.getInstance();
-        long windowHandle = client.getWindow() != null ? client.getWindow().handle() : 0;
+    public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
+        var graphics = context.graphics();
+        UiMinecraftClient client = UiMinecraftClient.getInstance();
+        long windowHandle = client.windowHandle();
 
         if (windowHandle != 0) {
             boolean enterPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS
@@ -104,7 +104,7 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
             wasEscapePressed = escapePressed;
         }
 
-        RenderUtil.fillRect(context, 0, 0, client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight(), UITheme.Colors.OVERLAY_BG);
+        RenderUtil.fillRect(context, 0, 0, client.guiScaledWidth(), client.guiScaledHeight(), UITheme.Colors.OVERLAY_BG);
         RenderUtil.fillRect(context, x, y, x + POPUP_WIDTH, y + popupHeight, UITheme.Colors.BUTTON_BG_DISABLED);
 
         RenderUtil.fillRect(context, x, y, x + POPUP_WIDTH, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
@@ -114,7 +114,7 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
 
         RenderUtil.drawCenteredString(
             context,
-            client.font,
+            client.uiFont(),
             title,
             x + POPUP_WIDTH / 2,
             y + UITheme.Dimensions.PADDING,
@@ -126,7 +126,7 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
         int messageWidth = POPUP_WIDTH - UITheme.Dimensions.PADDING * 2;
         RenderUtil.drawWrappedText(
             context,
-            client.font,
+            client.uiFont(),
             message,
             messageX,
             messageY,
@@ -135,15 +135,15 @@ public class UpdateAvailablePopup implements Renderable, GuiEventListener {
         );
 
         if (closeButton != null) {
-            closeButton.render(context, mouseX, mouseY, delta);
+            closeButton.render(graphics, mouseX, mouseY, delta);
         }
         if (openButton != null) {
-            openButton.render(context, mouseX, mouseY, delta);
+            openButton.render(graphics, mouseX, mouseY, delta);
         }
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         if (mouseX < x || mouseX > x + POPUP_WIDTH || mouseY < y || mouseY > y + popupHeight) {

@@ -1,10 +1,12 @@
 package com.andrews.archivedownloader.util;
 
+//? <1.21.5
+//import java.io.File;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.Minecraft;
-import net.minecraft.core.BlockPos;
 
 public final class LitematicaAutoLoader {
 	private LitematicaAutoLoader() {}
@@ -17,14 +19,20 @@ public final class LitematicaAutoLoader {
 			return false;
 		}
 
-		Minecraft client = Minecraft.getInstance();
-		if (client == null || client.player == null || client.level == null) {
+		UiMinecraftClient client = UiMinecraftClient.getInstance();
+		if (client.nativeClient() == null || client.nativeClient().player == null || client.nativeClient().level == null) {
 			return false;
 		}
 
 		try {
+			//? >=1.21.5 {
 			fi.dy.masa.litematica.schematic.LitematicaSchematic schematic =
 				fi.dy.masa.litematica.data.SchematicHolder.getInstance().getOrLoad(schematicPath);
+			//? } else {
+			/*File file = schematicPath.toFile();
+			fi.dy.masa.litematica.schematic.LitematicaSchematic schematic =
+					fi.dy.masa.litematica.data.SchematicHolder.getInstance().getOrLoad(file);
+			*///? }
 			if (schematic == null) {
 				System.err.println("Failed to load schematic from " + schematicPath);
 				return false;
@@ -39,7 +47,7 @@ public final class LitematicaAutoLoader {
 				displayName = stripExtension(fallbackName);
 			}
 
-			BlockPos origin = client.player.blockPosition();
+			var origin = client.nativeClient().player.blockPosition();
 			fi.dy.masa.litematica.schematic.placement.SchematicPlacement placement =
 				fi.dy.masa.litematica.schematic.placement.SchematicPlacement.createFor(schematic, origin, displayName, true, true);
 

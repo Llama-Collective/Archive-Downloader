@@ -25,9 +25,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.FormattedText;
-import net.minecraft.util.Util;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.platform.UiPlatform;
 
 /**
  * Manages attachment data and download operations for the post detail view.
@@ -37,7 +36,7 @@ public class AttachmentManager {
     public record SaveResult(String fileName, Path path, boolean isWorldDownload, List<String> worldNames) {}
 
     private static final ExecutorService IO_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "LitematicDownloader-IO");
+        Thread t = new Thread(r, "ArchiveDownloader-IO");
         t.setDaemon(true);
         return t;
     });
@@ -46,12 +45,12 @@ public class AttachmentManager {
     private static final int MAX_ENTRY_COUNT = 20000;
     private static final String FASTSTREAM_PREFIX = "https://faststream.online/player/#";
 
-    private final Minecraft client;
+    private final UiMinecraftClient client;
     private List<ArchiveAttachment> availableFiles = new ArrayList<>();
     private String downloadStatus = "";
     private ServerEntry server = ServerDictionary.getDefaultServer();
 
-    public AttachmentManager(Minecraft client) {
+    public AttachmentManager(UiMinecraftClient client) {
         this.client = client;
     }
 
@@ -559,10 +558,7 @@ public class AttachmentManager {
     }
 
     private void showToast(String title, String body) {
-        if (client == null || client.getToastManager() == null) return;
-        FormattedText titleText = FormattedText.of(title != null ? title : "");
-        FormattedText bodyText = (body != null && !body.isBlank()) ? FormattedText.of(body) : null;
-        client.execute(() -> client.getToastManager().addToast(new BasicToast(titleText, bodyText)));
+        client.showBasicToast(title, body);
     }
 
     private static class ExtractionStats {
@@ -613,7 +609,7 @@ public class AttachmentManager {
                 ? FASTSTREAM_PREFIX + url
                 : url;
         try {
-            Util.getPlatform().openUri(openUrl);
+            UiPlatform.openUri(openUrl);
         } catch (Exception e) {
             System.err.println("Failed to open attachment URL: " + e.getMessage());
         }

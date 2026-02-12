@@ -1,6 +1,6 @@
 package com.andrews.archivedownloader;
 
-import com.andrews.archivedownloader.gui.LitematicDownloaderScreen;
+import com.andrews.archivedownloader.gui.ArchiveDownloaderScreen;
 import com.andrews.archivedownloader.keybind.ModKeybindings;
 
 import net.fabricmc.api.ClientModInitializer;
@@ -17,16 +17,16 @@ public class ArchiveDownloaderClient implements ClientModInitializer {
 	private static void registerScreenToggleHandler() {
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			if (ModKeybindings.openMenuKey.isDown()) {
-				toggleLitematicDownloaderScreen(Minecraft.getInstance());
+				toggleArchiveDownloaderScreen(Minecraft.getInstance());
 			}
 		});
 	}
 
-	private static void toggleLitematicDownloaderScreen(Minecraft client) {
-		if (client.screen instanceof LitematicDownloaderScreen) {
+	private static void toggleArchiveDownloaderScreen(Minecraft client) {
+		if (client.screen instanceof ArchiveDownloaderScreen) {
 			client.setScreen(null);
 		} else {
-			client.setScreen(new LitematicDownloaderScreen());
+			client.setScreen(new ArchiveDownloaderScreen());
 		}
 	}
 }

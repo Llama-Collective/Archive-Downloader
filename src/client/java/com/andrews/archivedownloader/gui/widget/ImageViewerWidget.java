@@ -4,12 +4,12 @@ import org.lwjgl.glfw.GLFW;
 
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.render.UiRenderPipeline;
+import com.andrews.archivedownloader.wrapper.render.UiTextureId;
+import com.andrews.archivedownloader.wrapper.text.UiText;
 
 public class ImageViewerWidget {
     private static final int IMAGE_MARGIN = 40;
@@ -20,11 +20,11 @@ public class ImageViewerWidget {
     private static final int TEXT_VERTICAL_OFFSET = 4;
     private static final int NAV_BG_COLOR = 0xD0000000;
 
-    private final Identifier imageTexture;
+    private final UiTextureId imageTexture;
     private final int originalImageWidth;
     private final int originalImageHeight;
     private final Runnable onClose;
-    private final Minecraft client;
+    private final UiMinecraftClient client;
     private final int currentImageIndex;
     private final int totalImages;
     private final Runnable onPrevious;
@@ -37,7 +37,7 @@ public class ImageViewerWidget {
     private CustomButton nextButton;
 
 
-    public ImageViewerWidget(Minecraft client, Identifier imageTexture,
+    public ImageViewerWidget(UiMinecraftClient client, UiTextureId imageTexture,
                             int originalImageWidth, int originalImageHeight,
                             int currentImageIndex, int totalImages,
                             Runnable onPrevious, Runnable onNext, Runnable onClose) {
@@ -51,7 +51,7 @@ public class ImageViewerWidget {
         this.onNext = onNext;
         this.onClose = onClose;
 
-        updateLayout(client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight());
+        updateLayout(client.guiScaledWidth(), client.guiScaledHeight());
     }
 
     public void updateLayout(int screenWidth, int screenHeight) {
@@ -71,7 +71,7 @@ public class ImageViewerWidget {
 
         if (closeButton == null) {
             closeButton = new CustomButton(closeX, closeY, UITheme.Dimensions.BUTTON_HEIGHT,
-                    UITheme.Dimensions.BUTTON_HEIGHT, Component.nullToEmpty("×"), btn -> onClose.run());
+                    UITheme.Dimensions.BUTTON_HEIGHT, UiText.of("×"), btn -> onClose.run());
             closeButton.setRenderAsXIcon(true);
         } else {
             setButtonBounds(closeButton, closeX, closeY, UITheme.Dimensions.BUTTON_HEIGHT, UITheme.Dimensions.BUTTON_HEIGHT);
@@ -80,14 +80,14 @@ public class ImageViewerWidget {
 
     private void updateNavigationButtons() {
         String indicator = String.format("%d / %d", currentImageIndex + 1, totalImages);
-        int indicatorWidth = client.font.width(indicator);
+        int indicatorWidth = client.font().width(indicator);
         int indicatorX = (screenWidth - indicatorWidth) / 2;
         int navY = screenHeight - NAV_AREA_BOTTOM_OFFSET;
 
         int prevX = indicatorX - NAV_BUTTON_WIDTH - NAV_BUTTON_SPACING;
         if (prevButton == null) {
             prevButton = new CustomButton(prevX, navY, NAV_BUTTON_WIDTH, NAV_BUTTON_HEIGHT,
-                    Component.nullToEmpty("<"), btn -> onPrevious.run());
+                    UiText.of("<"), btn -> onPrevious.run());
         } else {
             setButtonBounds(prevButton, prevX, navY, NAV_BUTTON_WIDTH, NAV_BUTTON_HEIGHT);
         }
@@ -95,7 +95,7 @@ public class ImageViewerWidget {
         int nextX = indicatorX + indicatorWidth + NAV_BUTTON_SPACING;
         if (nextButton == null) {
             nextButton = new CustomButton(nextX, navY, NAV_BUTTON_WIDTH, NAV_BUTTON_HEIGHT,
-                    Component.nullToEmpty(">"), btn -> onNext.run());
+                    UiText.of(">"), btn -> onNext.run());
         } else {
             setButtonBounds(nextButton, nextX, navY, NAV_BUTTON_WIDTH, NAV_BUTTON_HEIGHT);
         }
@@ -132,7 +132,8 @@ public class ImageViewerWidget {
         return new int[]{displayWidth, displayHeight};
     }
 
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
+        var graphics = context.graphics();
         RenderUtil.fillRect(context, 0, 0, screenWidth, screenHeight, UITheme.Colors.OVERLAY_BG);
 
         renderImage(context);
@@ -142,10 +143,10 @@ public class ImageViewerWidget {
         }
 
         if (closeButton != null) {
-            closeButton.render(context, mouseX, mouseY, delta);
+            closeButton.render(graphics, mouseX, mouseY, delta);
         }
     }
-    private void renderImage(GuiGraphics context) {
+    private void renderImage(UiRenderContext context) {
         int[] dimensions = getScaledImageDimensions();
         int displayWidth = dimensions[0];
         int displayHeight = dimensions[1];
@@ -158,7 +159,7 @@ public class ImageViewerWidget {
         if (imageTexture != null) {
             RenderUtil.blit(
                 context,
-                RenderPipelines.GUI_TEXTURED,
+                UiRenderPipeline.GUI_TEXTURED,
                 imageTexture,
                 imageX, imageY,
                 0, 0,
@@ -168,9 +169,10 @@ public class ImageViewerWidget {
         }
     }
 
-    private void renderNavigation(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    private void renderNavigation(UiRenderContext context, int mouseX, int mouseY, float delta) {
+        var graphics = context.graphics();
         String pageText = String.format("%d / %d", currentImageIndex + 1, totalImages);
-        int textWidth = client.font.width(pageText);
+        int textWidth = client.font().width(pageText);
         int textX = (screenWidth - textWidth) / 2;
         int textY = screenHeight - NAV_AREA_BOTTOM_OFFSET + TEXT_VERTICAL_OFFSET;
 
@@ -181,17 +183,17 @@ public class ImageViewerWidget {
 
         drawNavigationBackground(context, prevBtnX, navY, nextBtnX);
 
-        RenderUtil.drawString(context, client.font, pageText, textX, textY, UITheme.Colors.TEXT_SUBTITLE);
+        RenderUtil.drawString(context, client.uiFont(), pageText, textX, textY, UITheme.Colors.TEXT_SUBTITLE);
 
         if (prevButton != null) {
-            prevButton.render(context, mouseX, mouseY, delta);
+            prevButton.render(graphics, mouseX, mouseY, delta);
         }
         if (nextButton != null) {
-            nextButton.render(context, mouseX, mouseY, delta);
+            nextButton.render(graphics, mouseX, mouseY, delta);
         }
     }
 
-    private void drawNavigationBackground(GuiGraphics context, int prevBtnX, int navY, int nextBtnX) {
+    private void drawNavigationBackground(UiRenderContext context, int prevBtnX, int navY, int nextBtnX) {
         int bgX = prevBtnX;
         int bgWidth = (nextBtnX + NAV_BUTTON_WIDTH) - prevBtnX;
         int bgY = navY;
@@ -200,7 +202,7 @@ public class ImageViewerWidget {
         RenderUtil.fillRect(context, bgX, bgY, bgX + bgWidth, bgY + bgHeight, NAV_BG_COLOR);
     }
 
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         int button = click.button();
@@ -235,7 +237,7 @@ public class ImageViewerWidget {
                mouseY < btn.getY() + btn.getHeight();
     }
     
-    public boolean mouseReleased(MouseButtonEvent click) {
+    public boolean mouseReleased(UiMouseEvent click) {
         return false;
     }
 

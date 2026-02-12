@@ -1,8 +1,8 @@
 {
 	"schemaVersion": 1,
-	"id": "archive-downloader",
+	"id": "${id}",
 	"version": "${version}",
-	"name": "Archive Downloader",
+	"name": "${name}",
 	"description": "Download builds from the Llama Collective directly in-game.",
 	"authors": [
 		"Andrews54757"
@@ -24,8 +24,7 @@
 		]
 	},
 	"depends": {
-        "minecraft": "1.21.11",
-		"java": ">=21",
+		"minecraft": "${minecraft}",
 		"fabric-api": "*"
 	},
 	"mixins": [

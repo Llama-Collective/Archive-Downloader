@@ -2,18 +2,18 @@ package com.andrews.archivedownloader.gui.widget;
 
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.Component;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.text.UiText;
 import org.lwjgl.glfw.GLFW;
 
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
 
-public class DiscordJoinPopup implements Renderable, GuiEventListener {
+public class DiscordJoinPopup implements UiRenderable, UiEventListener {
 	private static final int POPUP_WIDTH = 420;
 	private static final int MAX_MESSAGE_HEIGHT = 260;
 
@@ -43,11 +43,11 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 		this.onOpenInvite = onOpenInvite;
 		this.onCancel = onCancel;
 
-		Minecraft client = Minecraft.getInstance();
+		UiMinecraftClient client = UiMinecraftClient.getInstance();
 		this.wrappedMessage = wrapText(message, POPUP_WIDTH - UITheme.Dimensions.PADDING * 2, client);
 
-		int screenHeight = client.getWindow().getGuiScaledHeight();
-		int screenWidth = client.getWindow().getGuiScaledWidth();
+		int screenHeight = client.guiScaledHeight();
+		int screenWidth = client.guiScaledWidth();
 
 		int verticalMargin = 40;
 		int chromeHeight = UITheme.Dimensions.PADDING + UITheme.Typography.LINE_HEIGHT + UITheme.Dimensions.PADDING +
@@ -82,7 +82,7 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 				buttonY,
 				buttonWidth,
 				UITheme.Dimensions.BUTTON_HEIGHT,
-				Component.nullToEmpty("Cancel"),
+				UiText.of("Cancel"),
 				button -> onCancel.run()
 		);
 
@@ -91,7 +91,7 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 				buttonY,
 				buttonWidth,
 				UITheme.Dimensions.BUTTON_HEIGHT,
-				Component.nullToEmpty("Open Invite"),
+				UiText.of("Open Invite"),
 				button -> onOpenInvite.run()
 		);
 
@@ -100,12 +100,12 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 				buttonY,
 				buttonWidth,
 				UITheme.Dimensions.BUTTON_HEIGHT,
-				Component.nullToEmpty("Continue"),
+				UiText.of("Continue"),
 				button -> onContinue.run()
 		);
 	}
 
-	private List<String> wrapText(String text, int maxWidth, Minecraft client) {
+	private List<String> wrapText(String text, int maxWidth, UiMinecraftClient client) {
 		List<String> lines = new ArrayList<>();
 		String[] paragraphs = text.split("\n");
 
@@ -120,7 +120,7 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 
 			for (String word : words) {
 				String testLine = currentLine.length() == 0 ? word : currentLine + " " + word;
-				int width = client.font.width(testLine);
+				int width = client.font().width(testLine);
 
 				if (width <= maxWidth) {
 					if (currentLine.length() > 0) {
@@ -144,9 +144,10 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 	}
 
 	@Override
-	public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-		Minecraft client = Minecraft.getInstance();
-		long windowHandle = client.getWindow() != null ? client.getWindow().handle() : 0;
+	public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
+		var graphics = context.graphics();
+		UiMinecraftClient client = UiMinecraftClient.getInstance();
+		long windowHandle = client.windowHandle();
 
 		if (windowHandle != 0) {
 			boolean enterPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS ||
@@ -164,7 +165,7 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 			wasEscapePressed = escapePressed;
 		}
 
-		RenderUtil.fillRect(context, 0, 0, client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight(), UITheme.Colors.OVERLAY_BG);
+		RenderUtil.fillRect(context, 0, 0, client.guiScaledWidth(), client.guiScaledHeight(), UITheme.Colors.OVERLAY_BG);
 		RenderUtil.fillRect(context, x, y, x + POPUP_WIDTH, y + popupHeight, UITheme.Colors.BUTTON_BG_DISABLED);
 
 		RenderUtil.fillRect(context, x, y, x + POPUP_WIDTH, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
@@ -174,7 +175,7 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 
 		RenderUtil.drawCenteredString(
 				context,
-				client.font,
+				client.uiFont(),
 				title,
 				x + POPUP_WIDTH / 2,
 				y + UITheme.Dimensions.PADDING,
@@ -190,7 +191,7 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 			if (messageY + UITheme.Typography.LINE_HEIGHT >= messageAreaY && messageY < messageAreaY + messageAreaHeight) {
 				RenderUtil.drawString(
 						context,
-						client.font,
+						client.uiFont(),
 						line,
 						x + UITheme.Dimensions.PADDING,
 						messageY,
@@ -201,9 +202,9 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 		}
 		RenderUtil.disableScissor(context);
 
-		if (scrollBar != null && client.getWindow() != null) {
+		if (scrollBar != null && client.windowHandle() != 0L) {
 			scrollBar.setScrollPercentage(scrollOffset / Math.max(1, actualMessageHeight - visibleMessageHeight));
-			boolean scrollChanged = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.getWindow().handle());
+			boolean scrollChanged = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.windowHandle());
 			if (scrollChanged || scrollBar.isDragging()) {
 				double maxScroll = actualMessageHeight - visibleMessageHeight;
 				scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
@@ -211,18 +212,18 @@ public class DiscordJoinPopup implements Renderable, GuiEventListener {
 		}
 
 		if (cancelButton != null) {
-			cancelButton.render(context, mouseX, mouseY, delta);
+			cancelButton.render(graphics, mouseX, mouseY, delta);
 		}
 		if (inviteButton != null) {
-			inviteButton.render(context, mouseX, mouseY, delta);
+			inviteButton.render(graphics, mouseX, mouseY, delta);
 		}
 		if (continueButton != null) {
-			continueButton.render(context, mouseX, mouseY, delta);
+			continueButton.render(graphics, mouseX, mouseY, delta);
 		}
 	}
 
 	@Override
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
 		if (mouseX < x || mouseX > x + POPUP_WIDTH || mouseY < y || mouseY > y + popupHeight) {

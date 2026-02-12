@@ -1,5 +1,7 @@
-package com.andrews.archivedownloader.util;
+package com.andrews.archivedownloader.wrapper.toast;
 
+import com.andrews.archivedownloader.util.RenderUtil;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -8,7 +10,7 @@ import net.minecraft.client.gui.components.toasts.ToastManager;
 import net.minecraft.network.chat.FormattedText;
 import net.minecraft.util.FormattedCharSequence;
 
-public class BasicToast implements Toast {
+public class UiBasicToast implements Toast {
     private static final int WIDTH = 240;
     private static final int MIN_HEIGHT = 32;
 
@@ -20,31 +22,30 @@ public class BasicToast implements Toast {
     private Visibility visibility = Visibility.SHOW;
     private int computedHeight = MIN_HEIGHT;
 
-    public BasicToast(FormattedText title, FormattedText body) {
+    public UiBasicToast(FormattedText title, FormattedText body) {
         this(title, body, 4000L);
     }
 
-    public BasicToast(FormattedText title, FormattedText body, long displayMillis) {
+    public UiBasicToast(FormattedText title, FormattedText body, long displayMillis) {
         this.title = title != null ? title : FormattedText.of("");
         this.displayMillis = Math.max(1500L, displayMillis);
         Font renderer = Minecraft.getInstance().font;
         int maxLineWidth = WIDTH - 24;
         this.wrappedTitle = renderer.split(this.title, maxLineWidth);
         this.wrappedBody = (body != null && !body.getString().isEmpty())
-            ? renderer.split(body, maxLineWidth)
-            : java.util.List.of();
+                ? renderer.split(body, maxLineWidth)
+                : java.util.List.of();
         int lines = wrappedTitle.size() + wrappedBody.size();
-        this.computedHeight = Math.max(MIN_HEIGHT, 14 + lines * 9); // padding top+bottom plus line heights
+        this.computedHeight = Math.max(MIN_HEIGHT, 14 + lines * 9);
     }
 
     @Override
     public void render(GuiGraphics context, Font textRenderer, long startTime) {
         int height = height();
-        // simple background rectangle
-        int bgColor = 0xCC1E1E1E; // semi-transparent dark
+        int bgColor = 0xCC1E1E1E;
         int border = 0xFF3A3A3A;
         context.fill(0, 0, WIDTH, height, bgColor);
-        RenderUtil.drawBorder(context, 0, 0, WIDTH, height, border);
+        RenderUtil.drawBorder(UiRenderContext.from(context), 0, 0, WIDTH, height, border);
         int y = 7;
         for (int i = 0; i < wrappedTitle.size(); i++) {
             context.drawString(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFFFF, false);

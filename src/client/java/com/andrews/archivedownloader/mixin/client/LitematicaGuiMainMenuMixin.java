@@ -1,6 +1,6 @@
 package com.andrews.archivedownloader.mixin.client;
 
-import com.andrews.archivedownloader.gui.LitematicDownloaderScreen;
+import com.andrews.archivedownloader.gui.ArchiveDownloaderScreen;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
@@ -14,7 +14,7 @@ import fi.dy.masa.malilib.util.StringUtils;
 import fi.dy.masa.litematica.gui.GuiMainMenu;
 import fi.dy.masa.litematica.selection.SelectionMode;
 
-@Mixin(value = GuiMainMenu.class, remap = false)
+@Mixin(GuiMainMenu.class)
 public abstract class LitematicaGuiMainMenuMixin extends GuiBase {
 
     @Inject(method = "initGui", at = @At("RETURN"))
@@ -38,7 +38,7 @@ public abstract class LitematicaGuiMainMenuMixin extends GuiBase {
     private void archive$createArchiveButton(int x, int y, int width) {
         String label = "Archive Browser";
         ButtonGeneric button = new ButtonGeneric(x, y, width, 20, label, null, new String[] { "Open the Llama Collective archive browser" });
-        addButton(button, (btn, mouseButton) -> Minecraft.getInstance().setScreen(new LitematicDownloaderScreen()));
+        addButton(button, (btn, mouseButton) -> Minecraft.getInstance().setScreen(new ArchiveDownloaderScreen()));
     }
 
     @Unique

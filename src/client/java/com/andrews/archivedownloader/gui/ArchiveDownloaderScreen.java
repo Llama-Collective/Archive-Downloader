@@ -1,11 +1,6 @@
 package com.andrews.archivedownloader.gui;
 
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.Component;
 import com.andrews.archivedownloader.ArchiveDownloader;
-import net.minecraft.util.Util;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.util.List;
@@ -38,8 +33,14 @@ import com.andrews.archivedownloader.models.GlobalTag;
 import com.andrews.archivedownloader.network.ArchiveNetworkManager;
 import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.util.TagUtil;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiScreenBase;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.text.UiText;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.platform.UiPlatform;
 
-public class LitematicDownloaderScreen extends Screen {
+public class ArchiveDownloaderScreen extends UiScreenBase {
     private static final int SEARCH_BAR_HEIGHT = 20;
     private static final int PADDING = 10;
     private static final int SIDEBAR_WIDTH = 200;
@@ -95,8 +96,8 @@ public class LitematicDownloaderScreen extends Screen {
     private final Map<String, Integer> tagCounts = new HashMap<>();
     private final Map<String, Integer> channelCounts = new HashMap<>();
 
-    public LitematicDownloaderScreen() {
-        super(Component.nullToEmpty("Litematic Downloader"));
+    public ArchiveDownloaderScreen() {
+        super(UiText.of("Litematic Downloader"));
     }
 
     @Override
@@ -125,7 +126,7 @@ public class LitematicDownloaderScreen extends Screen {
                     PADDING,
                     serverButtonWidth,
                     SEARCH_BAR_HEIGHT,
-                    Component.nullToEmpty(getServerButtonLabel()),
+                    UiText.of(getServerButtonLabel()),
                     button -> {
                         showServerDropdown = !showServerDropdown;
                         hoveredServer = null;
@@ -135,10 +136,11 @@ public class LitematicDownloaderScreen extends Screen {
             serverButton.setHeight(SEARCH_BAR_HEIGHT);
             serverButton.setX(PADDING);
             serverButton.setY(PADDING);
-            serverButton.setMessage(Component.nullToEmpty(getServerButtonLabel()));
+            serverButton.setMessage(UiText.of(getServerButtonLabel()));
         }
 
-        if (this.minecraft != null) {
+        UiMinecraftClient uiClient = uiClientOrNull();
+        if (uiClient != null) {
             int channelButtonX = PADDING + serverButtonWidth + headerSpacing;
             int startX = channelButtonX + channelButtonWidth + headerSpacing;
             int rightReserve = PADDING + closeButtonSize + headerSpacing + submissionsWidth + headerSpacing;
@@ -146,13 +148,13 @@ public class LitematicDownloaderScreen extends Screen {
             int searchBarWidth = Math.max(120, availableWidth);
 
             searchField = new CustomTextField(
-                    this.minecraft,
+                    uiClient,
                     startX,
                     PADDING,
                     searchBarWidth,
                     SEARCH_BAR_HEIGHT,
-                    Component.nullToEmpty("Search"));
-            searchField.setHint(Component.nullToEmpty(showSubmissionsView
+                    UiText.of("Search"));
+            searchField.setHint(UiText.of(showSubmissionsView
                     ? "Search submissions, status, authors"
                     : "Search posts, codes, tags"));
             searchField.setOnEnterPressed(this::performSearch);
@@ -170,7 +172,7 @@ public class LitematicDownloaderScreen extends Screen {
                     PADDING,
                     submissionsWidth,
                     SEARCH_BAR_HEIGHT,
-                    Component.nullToEmpty(getSubmissionsButtonLabel()),
+                    UiText.of(getSubmissionsButtonLabel()),
                     button -> requestDiscordLink(getSubmissionsUrlForServer()));
         }
 
@@ -179,7 +181,7 @@ public class LitematicDownloaderScreen extends Screen {
                 PADDING,
                 channelButtonWidth,
                 SEARCH_BAR_HEIGHT,
-                Component.nullToEmpty("Filters"),
+                UiText.of("Filters"),
                 button -> {
                     showChannelPanel = !showChannelPanel;
                     this.init();
@@ -216,7 +218,7 @@ public class LitematicDownloaderScreen extends Screen {
                     PADDING,
                     detailCloseSize,
                     detailCloseSize,
-                    Component.nullToEmpty("X"),
+                    UiText.of("X"),
                     button -> {
                         showDetailOverlay = false;
                     });
@@ -275,7 +277,7 @@ public class LitematicDownloaderScreen extends Screen {
                 PADDING,
                 closeButtonSize,
                 closeButtonSize,
-                Component.nullToEmpty("X"),
+                UiText.of("X"),
                 button -> this.onClose());
         closeButton.setRenderAsXIcon(true);
         if (!initialized) {
@@ -288,11 +290,12 @@ public class LitematicDownloaderScreen extends Screen {
 
     private void initializeFirstOpenData() {
         ServerDictionary.ensureLoaded().thenRun(() -> {
-            if (this.minecraft == null) {
+            UiMinecraftClient client = uiClientOrNull();
+            if (client == null) {
                 return;
             }
-            this.minecraft.execute(() -> {
-                if (this.minecraft.screen != this) {
+            client.execute(() -> {
+                if (!isCurrentScreenInstance()) {
                     return;
                 }
                 refreshSelectedServerFromSettings();
@@ -313,10 +316,10 @@ public class LitematicDownloaderScreen extends Screen {
             submissionDataComplete = false;
         }
         if (serverButton != null) {
-            serverButton.setMessage(Component.literal(getServerButtonLabel()));
+            serverButton.setMessage(UiText.literal(getServerButtonLabel()));
         }
         if (submissionsButton != null) {
-            submissionsButton.setMessage(Component.literal(getSubmissionsButtonLabel()));
+            submissionsButton.setMessage(UiText.literal(getSubmissionsButtonLabel()));
         }
         if (postGrid != null) {
             postGrid.setServer(selectedServer);
@@ -434,50 +437,49 @@ public class LitematicDownloaderScreen extends Screen {
         searchFuture
                 .thenAccept(result -> handleSearchResponse(requestServer, result))
                 .exceptionally(throwable -> {
-                    if (this.minecraft != null) {
-                        this.minecraft.execute(() -> {
-                            isLoading = false;
-                            isLoadingMore = false;
-                            updatePaginationButtons();
+                    executeOnClient(() -> {
+                        isLoading = false;
+                        isLoadingMore = false;
+                        updatePaginationButtons();
 
-                            String errorMessage = throwable.getMessage();
-                            String userMessage;
+                        String errorMessage = throwable.getMessage();
+                        String userMessage;
 
-                            if (errorMessage != null) {
-                                if (errorMessage.contains("UnknownHostException") ||
-                                        errorMessage.contains("ConnectException") ||
-                                        errorMessage.contains("SocketTimeoutException") ||
-                                        errorMessage.contains("NoRouteToHostException")) {
-                                    userMessage = "Network error: No internet connection";
-                                } else if (errorMessage.contains("Unauthorized") || errorMessage.contains("401")) {
-                                    userMessage = "Unauthorized: check your API token";
-                                } else if (errorMessage.contains("HTTP error")) {
-                                    userMessage = "Server error: " + errorMessage;
-                                } else {
-                                    userMessage = "Search failed: " + errorMessage;
-                                }
+                        if (errorMessage != null) {
+                            if (errorMessage.contains("UnknownHostException") ||
+                                    errorMessage.contains("ConnectException") ||
+                                    errorMessage.contains("SocketTimeoutException") ||
+                                    errorMessage.contains("NoRouteToHostException")) {
+                                userMessage = "Network error: No internet connection";
+                            } else if (errorMessage.contains("Unauthorized") || errorMessage.contains("401")) {
+                                userMessage = "Unauthorized: check your API token";
+                            } else if (errorMessage.contains("HTTP error")) {
+                                userMessage = "Server error: " + errorMessage;
                             } else {
-                                userMessage = "Search failed: Unknown error";
+                                userMessage = "Search failed: " + errorMessage;
                             }
+                        } else {
+                            userMessage = "Search failed: Unknown error";
+                        }
 
-                            System.err.println(userMessage);
-                            System.err.println("Error loading posts: " + errorMessage);
-                        });
-                    }
+                        System.err.println(userMessage);
+                        System.err.println("Error loading posts: " + errorMessage);
+                    });
                     return null;
                 });
     }
 
     private void handleSearchResponse(ServerEntry responseServer, ArchiveSearchResult response) {
-        if (this.minecraft != null) {
+        UiMinecraftClient client = uiClientOrNull();
+        if (client != null) {
             if (!isActiveServer(responseServer)) {
-                this.minecraft.execute(() -> {
+                client.execute(() -> {
                     isLoading = false;
                     isLoadingMore = false;
                 });
                 return;
             }
-            this.minecraft.execute(() -> {
+            client.execute(() -> {
                 if (response == null) {
                     isLoading = false;
                     isLoadingMore = false;
@@ -673,7 +675,7 @@ public class LitematicDownloaderScreen extends Screen {
             channelPanel.setChannelCounts(channelCounts);
         }
         if (serverButton != null) {
-            serverButton.setMessage(Component.nullToEmpty(getServerButtonLabel()));
+            serverButton.setMessage(UiText.of(getServerButtonLabel()));
         }
         if (postGrid != null) {
             postGrid.setServer(target);
@@ -695,8 +697,9 @@ public class LitematicDownloaderScreen extends Screen {
     private void loadChannels() {
         ServerEntry requestServer = selectedServer != null ? selectedServer : ServerDictionary.getDefaultServer();
         if (showSubmissionsView) {
-            if (this.minecraft != null) {
-                this.minecraft.execute(() -> {
+            UiMinecraftClient client = uiClientOrNull();
+            if (client != null) {
+                client.execute(() -> {
                     List<ArchiveChannel> statusChannels = new ArrayList<>();
                     for (String status : ArchiveNetworkManager.getSubmissionStatuses()) {
                         String path = ArchiveNetworkManager.submissionStatusPath(status);
@@ -734,8 +737,9 @@ public class LitematicDownloaderScreen extends Screen {
                     if (!isActiveServer(requestServer)) {
                         return;
                     }
-                    if (this.minecraft != null) {
-                        this.minecraft.execute(() -> {
+                    UiMinecraftClient client = uiClientOrNull();
+                    if (client != null) {
+                        client.execute(() -> {
                             channels = list != null ? list.stream()
                                     .sorted(Comparator.comparing(ArchiveChannel::category)
                                             .thenComparing(ArchiveChannel::name))
@@ -767,24 +771,25 @@ public class LitematicDownloaderScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    protected void renderScreen(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
+        var context = renderContext.graphics();
         int leftPanelWidth = showChannelPanel ? SIDEBAR_WIDTH : 0;
-        super.render(context, mouseX, mouseY, delta);
+        super.renderScreen(renderContext, mouseX, mouseY, delta);
 
         if (postGrid != null) {
             postGrid.setBlocked(showChannelPanel || showServerDropdown || apiTokenPopup != null);
-            postGrid.render(context, mouseX, mouseY, delta);
+            postGrid.render(renderContext, mouseX, mouseY, delta);
         }
 
         if (isLoading) {
-            loadingSpinner.render(context, mouseX, mouseY, delta);
+            loadingSpinner.render(renderContext, mouseX, mouseY, delta);
         }
 
         if (noResultsFound) {
             String noResultsText = "No results found :(";
             RenderUtil.drawString(
-                    context,
-                    this.font,
+                    renderContext,
+                    UiMinecraftClient.getInstance().uiFont(),
                     noResultsText,
                     leftPanelWidth + PADDING + 20,
                     this.height / 2 + 10,
@@ -792,9 +797,9 @@ public class LitematicDownloaderScreen extends Screen {
         }
 
         if (showChannelPanel && channelPanel != null) {
-            RenderUtil.fillRect(context, 0, 0, this.width, this.height, 0x55000000);
-            channelPanel.render(context, mouseX, mouseY, delta);
-            renderChannelDescription(context, mouseX, mouseY, delta);
+            RenderUtil.fillRect(renderContext, 0, 0, this.width, this.height, 0x55000000);
+            channelPanel.render(renderContext, mouseX, mouseY, delta);
+            renderChannelDescription(renderContext, mouseX, mouseY, delta);
 
         }
 
@@ -821,66 +826,67 @@ public class LitematicDownloaderScreen extends Screen {
         }
 
         if (showServerDropdown) {
-            renderServerDropdown(context, mouseX, mouseY, delta);
+            renderServerDropdown(renderContext, mouseX, mouseY, delta);
         }
 
         if (showDetailOverlay && detailPanel != null) {
-            RenderUtil.fillRect(context, 0, 0, this.width, this.height, 0xAA000000);
-            detailPanel.render(context, mouseX, mouseY, delta);
+            RenderUtil.fillRect(renderContext, 0, 0, this.width, this.height, 0xAA000000);
+            detailPanel.render(renderContext, mouseX, mouseY, delta);
             if (detailCloseButton != null) {
                 detailCloseButton.render(context, mouseX, mouseY, delta);
             }
         }
 
         if (detailPanel != null && detailPanel.hasImageViewerOpen()) {
-            detailPanel.renderImageViewer(context, mouseX, mouseY, delta);
+            detailPanel.renderImageViewer(renderContext, mouseX, mouseY, delta);
         }
 
         if (discordPopup != null) {
-            discordPopup.render(context, mouseX, mouseY, delta);
+            discordPopup.render(renderContext, mouseX, mouseY, delta);
         }
         if (updatePopup != null) {
-            updatePopup.render(context, mouseX, mouseY, delta);
+            updatePopup.render(renderContext, mouseX, mouseY, delta);
         }
         if (apiTokenPopup != null) {
-            apiTokenPopup.render(context, mouseX, mouseY, delta);
+            apiTokenPopup.render(renderContext, mouseX, mouseY, delta);
         }
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
-        double mouseX = click.x();
-        double mouseY = click.y();
-        int button = click.button();
+    protected boolean onMouseClicked(UiMouseEvent mouseEvent, boolean doubled) {
+        double mouseX = mouseEvent.x();
+        double mouseY = mouseEvent.y();
+        int button = mouseEvent.button();
         boolean channelOverlayOpen = showChannelPanel && channelPanel != null;
 
         if (apiTokenPopup != null) {
-            return apiTokenPopup.mouseClicked(click, doubled);
+            return apiTokenPopup.mouseClicked(mouseEvent, doubled);
         }
 
         if (updatePopup != null) {
-            return updatePopup.mouseClicked(click, doubled);
+            return updatePopup.mouseClicked(mouseEvent, doubled);
         }
 
         if (discordPopup != null) {
-            return discordPopup.mouseClicked(click, doubled);
+            return discordPopup.mouseClicked(mouseEvent, doubled);
         }
 
         if (detailPanel != null && detailPanel.hasImageViewerOpen()) {
-            return detailPanel.mouseClicked(click, doubled);
+            return detailPanel.mouseClicked(mouseEvent, doubled);
         }
 
         if (showDetailOverlay && button == 0 && detailCloseButton != null
                 && isMouseOverButton(detailCloseButton, mouseX, mouseY)) {
-            if (this.minecraft != null) {
-                detailCloseButton.playDownSound(this.minecraft.getSoundManager());
+            UiMinecraftClient client = uiClientOrNull();
+            if (client != null) {
+                client.playButtonDownSound(detailCloseButton);
             }
             showDetailOverlay = false;
             return true;
         }
 
         if (showDetailOverlay && detailPanel != null) {
-            if (detailPanel.mouseClicked(click, doubled)) {
+            if (detailPanel.mouseClicked(mouseEvent, doubled)) {
                 return true;
             }
             showDetailOverlay = false;
@@ -888,8 +894,9 @@ public class LitematicDownloaderScreen extends Screen {
         }
 
         if (button == 0 && serverButton != null && isMouseOverButton(serverButton, mouseX, mouseY)) {
-            if (serverButton.active && this.minecraft != null) {
-                serverButton.playDownSound(this.minecraft.getSoundManager());
+            UiMinecraftClient client = uiClientOrNull();
+            if (serverButton.active && client != null) {
+                client.playButtonDownSound(serverButton);
             }
             showServerDropdown = !showServerDropdown;
             hoveredServer = null;
@@ -905,10 +912,12 @@ public class LitematicDownloaderScreen extends Screen {
 
         if (button == 0 && channelToggleButton != null && isMouseOverButton(channelToggleButton, mouseX, mouseY)) {
             if (channelToggleButton.active) {
-                if (this.minecraft != null) {
-                    channelToggleButton.playDownSound(this.minecraft.getSoundManager());
+                UiMinecraftClient client = uiClientOrNull();
+                if (client != null) {
+                    client.playButtonDownSound(channelToggleButton);
                 }
-                channelToggleButton.onPress(click);
+                showChannelPanel = !showChannelPanel;
+                this.init();
             }
             return true;
         }
@@ -919,7 +928,7 @@ public class LitematicDownloaderScreen extends Screen {
         }
 
         if (button == 0 && submissionsButton != null && isMouseOverButton(submissionsButton, mouseX, mouseY)) {
-            if (click.hasShiftDown()) {
+            if (mouseEvent.shiftDown()) {
                 openApiTokenPrompt();
             } else if (canShowSubmissionsToggle()) {
                 toggleSubmissionsView();
@@ -941,25 +950,25 @@ public class LitematicDownloaderScreen extends Screen {
         // tagField removed
 
         if (channelOverlayOpen) {
-            if (channelPanel != null && channelPanel.mouseClicked(click, doubled)) {
+            if (channelPanel != null && channelPanel.mouseClicked(mouseEvent, doubled)) {
                 return true;
             }
-            if (tagFilterWidget != null && tagFilterWidget.mouseClicked(click, doubled)) {
+            if (tagFilterWidget != null && tagFilterWidget.mouseClicked(mouseEvent, doubled)) {
                 return true;
             }
             showChannelPanel = false;
             return true;
         }
 
-        if (postGrid != null && postGrid.mouseClicked(click, doubled)) {
+        if (postGrid != null && postGrid.mouseClicked(mouseEvent, doubled)) {
             return true;
         }
 
-        return super.mouseClicked(click, doubled);
+        return super.onMouseClicked(mouseEvent, doubled);
     }
 
     @Override
-    public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
+    protected boolean onMouseDragged(UiMouseEvent mouseEvent, double offsetX, double offsetY) {
         if (apiTokenPopup != null) {
             return true;
         }
@@ -972,24 +981,24 @@ public class LitematicDownloaderScreen extends Screen {
         if (discordPopup != null) {
             return true;
         }
-        if (showDetailOverlay && detailPanel != null && detailPanel.mouseDragged(click, offsetX, offsetY)) {
+        if (showDetailOverlay && detailPanel != null && detailPanel.mouseDragged(mouseEvent, offsetX, offsetY)) {
             return true;
         }
         boolean channelOverlayOpen = showChannelPanel && channelPanel != null;
-        if (channelPanel != null && channelPanel.mouseDragged(click, offsetX, offsetY)) {
+        if (channelPanel != null && channelPanel.mouseDragged(mouseEvent, offsetX, offsetY)) {
             return true;
         }
         if (channelOverlayOpen) {
             return true;
         }
-        if (postGrid != null && postGrid.mouseDragged(click, offsetX, offsetY)) {
+        if (postGrid != null && postGrid.mouseDragged(mouseEvent, offsetX, offsetY)) {
             return true;
         }
         return false;
     }
 
     @Override
-    public boolean mouseReleased(MouseButtonEvent click) {
+    protected boolean onMouseReleased(UiMouseEvent mouseEvent) {
         if (apiTokenPopup != null) {
             return true;
         }
@@ -1002,17 +1011,17 @@ public class LitematicDownloaderScreen extends Screen {
         if (discordPopup != null) {
             return true;
         }
-        if (showDetailOverlay && detailPanel != null && detailPanel.mouseReleased(click)) {
+        if (showDetailOverlay && detailPanel != null && detailPanel.mouseReleased(mouseEvent)) {
             return true;
         }
         boolean channelOverlayOpen = showChannelPanel && channelPanel != null;
-        if (channelPanel != null && channelPanel.mouseReleased(click)) {
+        if (channelPanel != null && channelPanel.mouseReleased(mouseEvent)) {
             return true;
         }
         if (channelOverlayOpen) {
             return true;
         }
-        if (postGrid != null && postGrid.mouseReleased(click)) {
+        if (postGrid != null && postGrid.mouseReleased(mouseEvent)) {
             return true;
         }
         return false;
@@ -1102,7 +1111,7 @@ public class LitematicDownloaderScreen extends Screen {
         super.onClose();
     }
 
-    private void renderChannelDescription(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    private void renderChannelDescription(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
         if (channelPanel == null)
             return;
         ArchiveChannel channel = hoveredChannel != null ? hoveredChannel
@@ -1126,7 +1135,7 @@ public class LitematicDownloaderScreen extends Screen {
         if (channelDescriptionWidget != null) {
             channelDescriptionWidget.setBounds(boxX, boxY, boxWidth, boxHeight);
             channelDescriptionWidget.setChannel(channel);
-            channelDescriptionWidget.render(context, this.font);
+            channelDescriptionWidget.render(renderContext, uiClient().uiFont());
         }
 
         int tagY = boxY + boxHeight + UITheme.Dimensions.PADDING;
@@ -1134,12 +1143,13 @@ public class LitematicDownloaderScreen extends Screen {
         if (tagFilterWidget != null) {
             tagFilterWidget.setBounds(boxX, tagY, boxWidth, tagHeight);
             tagFilterWidget.setData(getDisplayedTags(), tagCounts, convertTagStates());
-            long windowHandle = this.minecraft != null ? this.minecraft.getWindow().handle() : 0L;
-            tagFilterWidget.render(context, this.font, mouseX, mouseY, delta, windowHandle);
+            UiMinecraftClient client = uiClientOrNull();
+            long windowHandle = client != null ? client.windowHandle() : 0L;
+            tagFilterWidget.render(renderContext, uiClient().uiFont(), mouseX, mouseY, delta, windowHandle);
         }
     }
 
-    private void renderServerDropdown(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    private void renderServerDropdown(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
         if (serverButton == null)
             return;
         List<ServerEntry> servers = ServerDictionary.getServers();
@@ -1154,7 +1164,7 @@ public class LitematicDownloaderScreen extends Screen {
 
         hoveredServer = null;
 
-        RenderUtil.fillRect(context, baseX, baseY - 2, baseX + width, baseY + servers.size() * itemHeight + 2,
+        RenderUtil.fillRect(renderContext, baseX, baseY - 2, baseX + width, baseY + servers.size() * itemHeight + 2,
                 UITheme.Colors.PANEL_BG_SECONDARY);
 
         for (int i = 0; i < servers.size(); i++) {
@@ -1172,13 +1182,13 @@ public class LitematicDownloaderScreen extends Screen {
                 bgColor = UITheme.Colors.BUTTON_BG_HOVER;
             }
 
-            RenderUtil.fillRect(context, baseX + 1, itemY, baseX + width - 1, itemY + itemHeight, bgColor);
+            RenderUtil.fillRect(renderContext, baseX + 1, itemY, baseX + width - 1, itemY + itemHeight, bgColor);
             String serverName = server.name() != null && !server.name().isBlank()
                     ? server.name()
                     : (server.id() != null ? server.id() : "Server");
             RenderUtil.drawString(
-                    context,
-                    this.font,
+                    renderContext,
+                    UiMinecraftClient.getInstance().uiFont(),
                     serverName,
                     baseX + UITheme.Dimensions.PADDING,
                     itemY + 4,
@@ -1186,7 +1196,7 @@ public class LitematicDownloaderScreen extends Screen {
         }
 
         ServerEntry descServer = hoveredServer != null ? hoveredServer : getActiveServer();
-        renderServerDescriptionBox(context, descServer, baseX, baseY, width, itemHeight, servers.size());
+        renderServerDescriptionBox(renderContext, descServer, baseX, baseY, width, itemHeight, servers.size());
     }
 
     private ServerDropdownLayout buildServerDropdownLayout(List<ServerEntry> servers) {
@@ -1196,7 +1206,7 @@ public class LitematicDownloaderScreen extends Screen {
             if (server == null)
                 continue;
             String name = server.name() != null ? server.name() : "Server";
-            labelWidth = Math.max(labelWidth, this.font.width(name));
+            labelWidth = Math.max(labelWidth, uiClient().uiFont().width(name));
         }
         int width = Math.max(140, labelWidth + UITheme.Dimensions.PADDING * 2);
         int x = serverButton != null ? serverButton.getX() : PADDING;
@@ -1211,7 +1221,7 @@ public class LitematicDownloaderScreen extends Screen {
     }
 
     // Tag rendering handled by TagFilterWidget; this method kept for compatibility.
-    private void renderServerDescriptionBox(GuiGraphics context, ServerEntry server, int dropdownX, int dropdownY,
+    private void renderServerDescriptionBox(UiRenderContext renderContext, ServerEntry server, int dropdownX, int dropdownY,
             int dropdownWidth, int itemHeight, int itemCount) {
         if (server == null || server.description() == null || server.description().isBlank()) {
             return;
@@ -1225,20 +1235,20 @@ public class LitematicDownloaderScreen extends Screen {
         }
         int boxWidth = Math.min(240, maxWidth);
         int textWidth = boxWidth - boxPadding * 2;
-        int textHeight = RenderUtil.getWrappedTextHeight(this.font, server.description(), textWidth);
+        int textHeight = RenderUtil.getWrappedTextHeight(UiMinecraftClient.getInstance().uiFont(), server.description(), textWidth);
         int boxHeight = Math.max(itemHeight * itemCount + 4, textHeight + boxPadding * 2);
 
-        RenderUtil.fillRect(context, boxX, boxY, boxX + boxWidth, boxY + boxHeight, UITheme.Colors.PANEL_BG_SECONDARY);
-        RenderUtil.fillRect(context, boxX, boxY, boxX + boxWidth, boxY + 1, UITheme.Colors.BUTTON_BORDER);
-        RenderUtil.fillRect(context, boxX, boxY + boxHeight - 1, boxX + boxWidth, boxY + boxHeight,
+        RenderUtil.fillRect(renderContext, boxX, boxY, boxX + boxWidth, boxY + boxHeight, UITheme.Colors.PANEL_BG_SECONDARY);
+        RenderUtil.fillRect(renderContext, boxX, boxY, boxX + boxWidth, boxY + 1, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, boxX, boxY + boxHeight - 1, boxX + boxWidth, boxY + boxHeight,
                 UITheme.Colors.BUTTON_BORDER);
-        RenderUtil.fillRect(context, boxX, boxY, boxX + 1, boxY + boxHeight, UITheme.Colors.BUTTON_BORDER);
-        RenderUtil.fillRect(context, boxX + boxWidth - 1, boxY, boxX + boxWidth, boxY + boxHeight,
+        RenderUtil.fillRect(renderContext, boxX, boxY, boxX + 1, boxY + boxHeight, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, boxX + boxWidth - 1, boxY, boxX + boxWidth, boxY + boxHeight,
                 UITheme.Colors.BUTTON_BORDER);
 
         RenderUtil.drawWrappedText(
-                context,
-                this.font,
+                renderContext,
+                UiMinecraftClient.getInstance().uiFont(),
                 server.description(),
                 boxX + boxPadding,
                 boxY + boxPadding,
@@ -1420,10 +1430,11 @@ public class LitematicDownloaderScreen extends Screen {
                     }
                     ArchiveNetworkManager.validateApiToken(server, token)
                             .thenAccept(validation -> {
-                                if (this.minecraft == null) {
+                                UiMinecraftClient client = uiClientOrNull();
+                                if (client == null) {
                                     return;
                                 }
-                                this.minecraft.execute(() -> {
+                                client.execute(() -> {
                                     if (apiTokenPopup == null) {
                                         return;
                                     }
@@ -1441,15 +1452,13 @@ public class LitematicDownloaderScreen extends Screen {
                                 });
                             })
                             .exceptionally(throwable -> {
-                                if (this.minecraft != null) {
-                                    this.minecraft.execute(() -> {
-                                        if (apiTokenPopup != null) {
-                                            apiTokenPopup.setValidating(false, null);
-                                            apiTokenPopup.setStatus(
-                                                    "Validation failed: " + describeThrowable(throwable), true);
-                                        }
-                                    });
-                                }
+                                executeOnClient(() -> {
+                                    if (apiTokenPopup != null) {
+                                        apiTokenPopup.setValidating(false, null);
+                                        apiTokenPopup.setStatus(
+                                                "Validation failed: " + describeThrowable(throwable), true);
+                                    }
+                                });
                                 return null;
                             });
                 },
@@ -1517,7 +1526,7 @@ public class LitematicDownloaderScreen extends Screen {
             return;
         }
         try {
-            Util.getPlatform().openUri(url);
+            UiPlatform.openUri(url);
         } catch (Exception e) {
             System.err.println("Failed to open link: " + e.getMessage());
         }

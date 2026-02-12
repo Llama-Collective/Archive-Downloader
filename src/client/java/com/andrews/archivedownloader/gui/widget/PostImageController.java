@@ -4,6 +4,10 @@ import com.andrews.archivedownloader.config.ServerDictionary;
 import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
 import com.andrews.archivedownloader.models.ArchiveImageInfo;
 import com.andrews.archivedownloader.network.ArchiveNetworkManager;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.render.UiTextureId;
 import com.mojang.blaze3d.platform.NativeImage;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -19,25 +23,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.resources.Identifier;
 
-/**
- * Handles image state, loading, and viewer interactions for the post detail view.
- */
 public class PostImageController {
-
-    private final Minecraft client;
+    private final UiMinecraftClient client;
     private final LoadingSpinner loadingSpinner;
     private ServerEntry server = ServerDictionary.getDefaultServer();
 
@@ -47,8 +41,8 @@ public class PostImageController {
 
     private String[] imageUrls = new String[0];
     private int currentImageIndex = 0;
-    private Identifier currentImageTexture;
-    private final Map<String, Identifier> imageCache = new ConcurrentHashMap<>();
+    private UiTextureId currentImageTexture;
+    private final Map<String, UiTextureId> imageCache = new ConcurrentHashMap<>();
     private final Set<String> preloadingImages = ConcurrentHashMap.newKeySet();
     private String loadingImageUrl = null;
     private int originalImageWidth = 0;
@@ -57,7 +51,7 @@ public class PostImageController {
 
     private ImageViewerWidget imageViewer;
 
-    public PostImageController(Minecraft client) {
+    public PostImageController(UiMinecraftClient client) {
         this.client = client;
         this.loadingSpinner = new LoadingSpinner(0, 0);
     }
@@ -111,10 +105,6 @@ public class PostImageController {
         preloadNextImage(false);
     }
 
-    public boolean hasImages() {
-        return imageUrls.length > 0;
-    }
-
     public boolean hasMultipleImages() {
         return imageUrls.length > 1;
     }
@@ -127,7 +117,7 @@ public class PostImageController {
         return currentImageIndex;
     }
 
-    public Identifier getCurrentImageTexture() {
+    public UiTextureId getCurrentImageTexture() {
         return currentImageTexture;
     }
 
@@ -176,7 +166,7 @@ public class PostImageController {
     }
 
     public void openImageViewer(int screenWidth, int screenHeight) {
-        if (currentImageTexture == null || client == null) {
+        if (currentImageTexture == null) {
             return;
         }
 
@@ -198,17 +188,17 @@ public class PostImageController {
         imageViewer = null;
     }
 
-    public void renderImageViewer(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void renderImageViewer(UiRenderContext context, int mouseX, int mouseY, float delta) {
         if (imageViewer != null) {
             imageViewer.render(context, mouseX, mouseY, delta);
         }
     }
 
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         return imageViewer != null && imageViewer.mouseClicked(click, doubled);
     }
 
-    public boolean mouseReleased(MouseButtonEvent click) {
+    public boolean mouseReleased(UiMouseEvent click) {
         return imageViewer != null && imageViewer.mouseReleased(click);
     }
 
@@ -235,11 +225,11 @@ public class PostImageController {
     }
 
     private void reopenViewer() {
-        if (client == null || client.getWindow() == null) {
+        if (client.windowHandle() == 0L) {
             return;
         }
         closeImageViewer();
-        openImageViewer(client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight());
+        openImageViewer(client.guiScaledWidth(), client.guiScaledHeight());
     }
 
     private void loadImage(String imageUrl) {
@@ -263,27 +253,23 @@ public class PostImageController {
         loadingImageUrl = imageUrl;
 
         loadImageAsync(imageUrl).thenAccept(texId -> {
-            if (client != null) {
-                client.execute(() -> {
-                    if (imageUrl.equals(loadingImageUrl)) {
-                        currentImageTexture = texId;
-                        int[] dims = imageDimensionsCache.get(imageUrl);
-                        if (dims != null) {
-                            originalImageWidth = dims[0];
-                            originalImageHeight = dims[1];
-                        }
-                        updateCurrentImageDescription(imageUrl);
-                        isLoadingImage = false;
+            client.execute(() -> {
+                if (imageUrl.equals(loadingImageUrl)) {
+                    currentImageTexture = texId;
+                    int[] dims = imageDimensionsCache.get(imageUrl);
+                    if (dims != null) {
+                        originalImageWidth = dims[0];
+                        originalImageHeight = dims[1];
                     }
-                });
-            }
-        }).exceptionally(ex -> {
-            if (client != null) {
-                client.execute(() -> {
+                    updateCurrentImageDescription(imageUrl);
                     isLoadingImage = false;
-                    System.err.println("Failed to load image: " + ex.getMessage());
-                });
-            }
+                }
+            });
+        }).exceptionally(ex -> {
+            client.execute(() -> {
+                isLoadingImage = false;
+                System.err.println("Failed to load image: " + ex.getMessage());
+            });
             return null;
         });
     }
@@ -305,20 +291,19 @@ public class PostImageController {
         preloadingImages.add(nextUrl);
         loadImageAsync(nextUrl).handle((tex, ex) -> {
             preloadingImages.remove(nextUrl);
-            if (ex != null && client != null) {
+            if (ex != null) {
                 client.execute(() -> System.err.println("Failed to preload image: " + ex.getMessage()));
             }
             return null;
         });
     }
 
-    private CompletableFuture<Identifier> loadImageAsync(String imageUrl) {
+    private CompletableFuture<UiTextureId> loadImageAsync(String imageUrl) {
         if (imageCache.containsKey(imageUrl)) {
             return CompletableFuture.completedFuture(imageCache.get(imageUrl));
         }
 
         String encodedUrl = encodeImageUrl(imageUrl);
-
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -329,6 +314,7 @@ public class PostImageController {
                 .header("User-Agent", ArchiveNetworkManager.USER_AGENT);
         ArchiveNetworkManager.applyApiAuthorization(builder, server, encodedUrl);
         HttpRequest request = builder.build();
+
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
                 .thenApply(response -> {
                     if (response.statusCode() != 200) {
@@ -352,7 +338,6 @@ public class PostImageController {
 
                     int imgWidth = nativeImage.getWidth();
                     int imgHeight = nativeImage.getHeight();
-
                     if (imgWidth <= 0 || imgHeight <= 0 || imgWidth > 4096 || imgHeight > 4096) {
                         nativeImage.close();
                         throw new CompletionException(new RuntimeException("Invalid image dimensions"));
@@ -360,18 +345,8 @@ public class PostImageController {
 
                     imageDimensionsCache.put(imageUrl, new int[] { imgWidth, imgHeight });
 
-                    final String uniqueId = UUID.randomUUID().toString().replace("-", "");
-                    final Identifier texId = Identifier.fromNamespaceAndPath("litematicdownloader",
-                            "textures/dynamic/" + uniqueId);
-
-                    if (client != null) {
-                        client.execute(() -> {
-                            client.getTextureManager().register(
-                                    texId,
-                                    new DynamicTexture(() -> "post_image", nativeImage));
-                            imageCache.put(imageUrl, texId);
-                        });
-                    }
+                    UiTextureId texId = client.registerDynamicTexture("post", nativeImage);
+                    imageCache.put(imageUrl, texId);
                     return texId;
                 });
     }
@@ -394,10 +369,10 @@ public class PostImageController {
             URI uri = URI.create(url);
             String path = uri.getPath();
             String encodedPath = path.replace(" ", "%20");
-            return uri.getScheme() + "://" + uri.getHost() +
-                    (uri.getPort() != -1 ? ":" + uri.getPort() : "") +
-                    encodedPath +
-                    (uri.getQuery() != null ? "?" + uri.getQuery() : "");
+            return uri.getScheme() + "://" + uri.getHost()
+                    + (uri.getPort() != -1 ? ":" + uri.getPort() : "")
+                    + encodedPath
+                    + (uri.getQuery() != null ? "?" + uri.getQuery() : "");
         } catch (Exception e) {
             return url.replace(" ", "%20");
         }
@@ -418,12 +393,12 @@ public class PostImageController {
                 }
             }
         } catch (Exception e) {
+            // fallback below
         }
 
         if (bufferedImage == null) {
             bufferedImage = ImageIO.read(new ByteArrayInputStream(imageData));
         }
-
         if (bufferedImage == null) {
             throw new Exception("Failed to decode image");
         }

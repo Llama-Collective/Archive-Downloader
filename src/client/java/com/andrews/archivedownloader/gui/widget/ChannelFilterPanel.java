@@ -3,23 +3,23 @@ package com.andrews.archivedownloader.gui.widget;
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.models.ArchiveChannel;
 import com.andrews.archivedownloader.util.RenderUtil;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.MouseButtonEvent;
 
-public class ChannelFilterPanel implements Renderable, GuiEventListener {
+public class ChannelFilterPanel implements UiRenderable, UiEventListener {
     private static final int HEADER_HEIGHT = 28;
     private static final int ITEM_HEIGHT = 22;
 
-    private final Minecraft client;
+    private final UiMinecraftClient client;
     private int x;
     private int y;
     private int width;
@@ -36,7 +36,7 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
     private final Map<String, Integer> channelCounts = new HashMap<>();
 
     public ChannelFilterPanel(int x, int y, int width, int height) {
-        this.client = Minecraft.getInstance();
+        this.client = UiMinecraftClient.getInstance();
         this.x = x;
         this.y = y;
         this.width = width;
@@ -108,7 +108,7 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
         RenderUtil.fillRect(context, x, y, x + width, y + height, UITheme.Colors.PANEL_BG_SECONDARY);
 
         RenderUtil.fillRect(context, x, y, x + width, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
@@ -121,7 +121,7 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
         RenderUtil.drawScaledString(context, "Channels", x + UITheme.Dimensions.PADDING, y + UITheme.Dimensions.PADDING + 2, UITheme.Colors.TEXT_PRIMARY, scale);
 
         String reset = "Reset";
-        int resetWidth = (int) (client.font.width(reset) * scale);
+        int resetWidth = (int) (client.font().width(reset) * scale);
         int resetX = x + width - resetWidth - UITheme.Dimensions.PADDING;
         int resetY = y + UITheme.Dimensions.PADDING + 2;
         RenderUtil.drawScaledString(context, reset, resetX, resetY, UITheme.Colors.TEXT_PRIMARY, scale);
@@ -152,9 +152,9 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
                     ? channelCounts.get(path)
                     : (channel.entryCount() >= 0 ? channel.entryCount() : null);
                 String countText = count != null ? String.valueOf(count) : "";
-                int countWidth = countText.isEmpty() ? 0 : client.font.width(countText);
+                int countWidth = countText.isEmpty() ? 0 : client.font().width(countText);
                 float textScale = 0.9f;
-                int codeWidth = client.font.width(channel.code()) + 4;
+                int codeWidth = client.font().width(channel.code()) + 4;
 
                 RenderUtil.drawScaledString(context, channel.code(), x + UITheme.Dimensions.PADDING, currentY + 6, UITheme.Colors.TEXT_MUTED, textScale);
                 RenderUtil.drawScaledString(context, channel.name(), x + UITheme.Dimensions.PADDING + codeWidth, currentY + 6, UITheme.Colors.TEXT_PRIMARY, textScale);
@@ -186,8 +186,8 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
         }
         updateHover(mouseX, mouseY);
 
-        if (client != null && client.getWindow() != null) {
-            boolean changed = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.getWindow().handle());
+        if (client.windowHandle() != 0L) {
+            boolean changed = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.windowHandle());
             if (changed || scrollBar.isDragging()) {
                 scrollOffset = scrollBar.getScrollPercentage() * scrollable;
             }
@@ -197,7 +197,7 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         int button = click.button();
@@ -211,7 +211,7 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
         }
 
         String reset = "Reset";
-        int resetWidth = client.font.width(reset);
+        int resetWidth = client.font().width(reset);
         int resetX = x + width - resetWidth - UITheme.Dimensions.PADDING;
         int resetY = y + UITheme.Dimensions.PADDING + 2;
         if (mouseX >= resetX && mouseX <= resetX + resetWidth && mouseY >= resetY && mouseY <= resetY + UITheme.Typography.TEXT_HEIGHT) {
@@ -267,7 +267,7 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
+    public boolean mouseDragged(UiMouseEvent click, double offsetX, double offsetY) {
         if (scrollBar.mouseDragged(click, offsetX, offsetY)) {
             scrollOffset = scrollBar.getScrollPercentage() * Math.max(0, contentHeight - height);
             updateHover(click.x(), click.y());
@@ -277,7 +277,7 @@ public class ChannelFilterPanel implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseReleased(MouseButtonEvent click) {
+    public boolean mouseReleased(UiMouseEvent click) {
         scrollBar.mouseReleased(click);
         updateHover(click.x(), click.y());
         return false;

@@ -7,6 +7,12 @@ import com.andrews.archivedownloader.models.ArchivePostSummary;
 import com.andrews.archivedownloader.network.ArchiveNetworkManager;
 import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.util.TagUtil;
+import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.render.UiRenderPipeline;
+import com.andrews.archivedownloader.wrapper.render.UiTextureId;
 import com.mojang.blaze3d.platform.NativeImage;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
@@ -16,22 +22,14 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.resources.Identifier;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 
-public class PostGridWidget implements Renderable, GuiEventListener {
+public class PostGridWidget implements UiRenderable, UiEventListener {
     private static final int CARD_HEIGHT = 135;
     private static final int CARD_MIN_WIDTH = 120;
     private static final int CARD_MAX_WIDTH = 160;
@@ -39,7 +37,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
     private static final int IMAGE_HEIGHT = 60;
     private static final float TEXT_SCALE = 0.7f;
 
-    private final Minecraft client;
+    private final UiMinecraftClient client;
     private int x;
     private int y;
     private int width;
@@ -48,7 +46,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
     private ScrollBar scrollBar;
     private List<ArchivePostSummary> posts = new ArrayList<>();
     private final OnPostClickListener onPostClick;
-    private final Map<String, Identifier> imageTextures = new ConcurrentHashMap<>();
+    private final Map<String, UiTextureId> imageTextures = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<?>> imageLoading = new ConcurrentHashMap<>();
     private final Map<String, int[]> imageSizes = new ConcurrentHashMap<>();
     private final Set<String> noImagePosts = ConcurrentHashMap.newKeySet();
@@ -67,7 +65,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
     }
 
     public PostGridWidget(int x, int y, int width, int height, OnPostClickListener onPostClick) {
-        this.client = Minecraft.getInstance();
+        this.client = UiMinecraftClient.getInstance();
         this.x = x;
         this.y = y;
         this.width = width;
@@ -140,7 +138,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
         Layout layout = computeLayout();
         int columns = layout.columns();
         int cardWidth = layout.cardWidth();
@@ -181,11 +179,11 @@ public class PostGridWidget implements Renderable, GuiEventListener {
         }
 
         RenderUtil.disableScissor(context);
-        if (client != null && client.getWindow() != null) {
+        if (client.windowHandle() != 0L) {
             if (blocked) {
                 scrollBar.render(context, mouseX, mouseY, delta);
             } else {
-                boolean changed = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.getWindow().handle());
+                boolean changed = scrollBar.updateAndRender(context, mouseX, mouseY, delta, client.windowHandle());
                 if (changed || scrollBar.isDragging()) {
                     scrollOffset = scrollBar.getScrollPercentage() * Math.max(0, contentHeight - height);
                 }
@@ -201,7 +199,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
         }
     }
 
-    private void renderCard(GuiGraphics context, ArchivePostSummary post, int cardX, int cardY, int cardWidth, int cardHeight, int mouseX, int mouseY) {
+    private void renderCard(UiRenderContext context, ArchivePostSummary post, int cardX, int cardY, int cardWidth, int cardHeight, int mouseX, int mouseY) {
         int bgColor = UITheme.Colors.PANEL_BG;
         boolean hovered = mouseX >= cardX && mouseX < cardX + cardWidth && mouseY >= cardY && mouseY < cardY + cardHeight;
         if (hovered) {
@@ -215,7 +213,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
         int imgY = cardY + imgPadding;
         int imgW = cardWidth - imgPadding * 2;
 
-        Identifier tex = imageTextures.get(post.id());
+        UiTextureId tex = imageTextures.get(post.id());
         if (tex != null) {
             int[] dims = imageSizes.get(post.id());
             int drawW = imgW;
@@ -230,7 +228,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
             RenderUtil.fillRect(context, imgX, imgY, imgX + imgW, imgY + IMAGE_HEIGHT, UITheme.Colors.CONTAINER_BG);
             RenderUtil.blit(
                 context,
-                RenderPipelines.GUI_TEXTURED,
+                UiRenderPipeline.GUI_TEXTURED,
                 tex,
                 drawX,
                 drawY,
@@ -258,8 +256,8 @@ public class PostGridWidget implements Renderable, GuiEventListener {
             } else {
                 status = "Loading...";
             }
-            int textWidth = (int) (client.font.width(status) * 0.8f);
-            int textHeight = (int) (client.font.lineHeight * 0.8f);
+            int textWidth = (int) (client.font().width(status) * 0.8f);
+            int textHeight = (int) (client.font().lineHeight * 0.8f);
             int textX = imgX + Math.max(0, (imgW - textWidth) / 2);
             int textY = imgY + Math.max(0, (IMAGE_HEIGHT - textHeight) / 2);
             RenderUtil.drawScaledString(context, status, textX, textY, UITheme.Colors.TEXT_SUBTITLE, 0.8f);
@@ -277,7 +275,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
         String metaLine = code.isEmpty() ? dateText : code + " • " + dateText;
         if (!metaLine.isEmpty()) {
             RenderUtil.drawScaledString(context, metaLine, cardX + imgPadding, textY, UITheme.Colors.TEXT_SUBTITLE, 0.7f);
-            textY += (int) (client.font.lineHeight * 0.7f) + 4;
+            textY += (int) (client.font().lineHeight * 0.7f) + 4;
         }
 
         String authorLine = (post.authors() != null && post.authors().length > 0) ? String.join(", ", post.authors()) : "Unknown Author";
@@ -296,7 +294,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
             for (String tag : TagUtil.orderTags(tags, server)) {
                 if (tag == null) continue;
                 String displayTag = TagUtil.formatTagLabel(tag, server);
-                int tw = (int) (client.font.width(displayTag) * tagScale) + 8;
+                int tw = (int) (client.font().width(displayTag) * tagScale) + 8;
                 if (tagX + tw > cardX + imgPadding + maxWidth) {
                     rows++;
                     if (rows > maxRows) {
@@ -325,7 +323,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
         return rows * (CARD_HEIGHT + GAP) + GAP;
     }
 
-    private int drawScaledWrappedTextLimited(GuiGraphics context, String text, int textX, int textY, int maxWidth, int color, float scale, int maxLines) {
+    private int drawScaledWrappedTextLimited(UiRenderContext context, String text, int textX, int textY, int maxWidth, int color, float scale, int maxLines) {
         if (text == null || text.isEmpty()) return 0;
         String[] words = text.split(" ");
         StringBuilder line = new StringBuilder();
@@ -334,16 +332,16 @@ public class PostGridWidget implements Renderable, GuiEventListener {
 
         for (String word : words) {
             String testLine = !line.isEmpty() ? line + " " + word : word;
-            int testWidth = (int) (client.font.width(testLine) * scale);
+            int testWidth = (int) (client.font().width(testLine) * scale);
 
             if (testWidth > maxWidth && !line.isEmpty()) {
                 RenderUtil.drawScaledString(context, line.toString(), textX, lineY, color, scale);
                 linesDrawn++;
                 if (linesDrawn >= maxLines) {
-                    return linesDrawn * (int) (client.font.lineHeight * scale);
+                    return linesDrawn * (int) (client.font().lineHeight * scale);
                 }
                 line = new StringBuilder(word);
-                lineY += (int) (client.font.lineHeight * scale);
+                lineY += (int) (client.font().lineHeight * scale);
             } else {
                 line = new StringBuilder(testLine);
             }
@@ -354,7 +352,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
             linesDrawn++;
         }
 
-        return linesDrawn * (int) (client.font.lineHeight * scale);
+        return linesDrawn * (int) (client.font().lineHeight * scale);
     }
 
     private String timeAgo(long ts) {
@@ -445,15 +443,9 @@ public class PostGridWidget implements Renderable, GuiEventListener {
                         failedImagePosts.add(post.id());
                         return;
                     }
-                    String id = UUID.randomUUID().toString().replace("-", "");
-                    Identifier texId = Identifier.fromNamespaceAndPath("litematicdownloader", "grid/" + id);
-                    if (client != null) {
-                        client.execute(() -> {
-                            client.getTextureManager().register(texId, new DynamicTexture(() -> "grid_image", img));
-                            imageTextures.put(post.id(), texId);
-                            imageSizes.put(post.id(), new int[]{img.getWidth(), img.getHeight()});
-                        });
-                    }
+                    UiTextureId texId = client.registerDynamicTexture("grid", img);
+                    imageTextures.put(post.id(), texId);
+                    imageSizes.put(post.id(), new int[]{img.getWidth(), img.getHeight()});
                 } catch (Exception e) {
                     failedImagePosts.add(post.id());
                     System.err.println("Failed to load grid image: " + e.getMessage());
@@ -470,7 +462,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         int button = click.button();
@@ -523,7 +515,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
+    public boolean mouseDragged(UiMouseEvent click, double offsetX, double offsetY) {
         if (blocked) return false;
         if (scrollBar.mouseDragged(click, offsetX, offsetY)) {
             Layout layout = computeLayout();
@@ -535,7 +527,7 @@ public class PostGridWidget implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseReleased(MouseButtonEvent click) {
+    public boolean mouseReleased(UiMouseEvent click) {
         scrollBar.mouseReleased(click);
         return false;
     }

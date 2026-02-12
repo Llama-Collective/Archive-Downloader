@@ -11,6 +11,15 @@ import com.andrews.archivedownloader.network.ArchiveNetworkManager;
 import com.andrews.archivedownloader.util.AttachmentManager;
 import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.util.TagUtil;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.platform.UiPlatform;
+import com.andrews.archivedownloader.wrapper.render.UiRenderPipeline;
+import com.andrews.archivedownloader.wrapper.render.UiTextureId;
+import com.andrews.archivedownloader.wrapper.text.UiText;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -19,17 +28,8 @@ import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import net.minecraft.util.Util;
 
-public class PostDetailPanel implements Renderable, GuiEventListener {
+public class PostDetailPanel implements UiRenderable, UiEventListener {
     private static final int MAX_IMAGE_SIZE = 120;
 
     private int x;
@@ -41,7 +41,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
     private ArchivePostDetail postDetail;
     private boolean isLoadingDetails = false;
 
-    private final Minecraft client;
+    private final UiMinecraftClient client;
     private final PostImageController imageController;
     private final AttachmentManager attachmentManager;
 
@@ -64,7 +64,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         this.y = y;
         this.width = width;
         this.height = height;
-        this.client = Minecraft.getInstance();
+        this.client = UiMinecraftClient.getInstance();
         this.imageController = new PostImageController(this.client);
         this.attachmentManager = new AttachmentManager(this.client);
         int scrollBarYOffset = 30;
@@ -151,7 +151,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         int btnSpacing = compact ? 5 : 10;
 
         String indicator = String.format("%d / %d", imageController.getCurrentImageIndex() + 1, imageCount);
-        int indicatorWidth = client.font.width(indicator);
+        int indicatorWidth = client.font().width(indicator);
         int indicatorX = x + (width - indicatorWidth) / 2;
 
         int prevBtnX = indicatorX - btnWidth - btnSpacing;
@@ -159,7 +159,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
 
         if (prevImageButton == null) {
             prevImageButton = new CustomButton(prevBtnX, imageNavY, btnWidth, btnHeight,
-                    Component.nullToEmpty("<"), btn -> imageController.previousImage());
+                    UiText.of("<"), btn -> imageController.previousImage());
         } else {
             prevImageButton.setX(prevBtnX);
             prevImageButton.setY(imageNavY);
@@ -168,7 +168,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
 
         if (nextImageButton == null) {
             nextImageButton = new CustomButton(nextBtnX, imageNavY, btnWidth, btnHeight,
-                    Component.nullToEmpty(">"), btn -> imageController.nextImage());
+                    UiText.of(">"), btn -> imageController.nextImage());
         } else {
             nextImageButton.setX(nextBtnX);
             nextImageButton.setY(imageNavY);
@@ -198,13 +198,11 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         ArchiveNetworkManager.getPostDetails(server, post)
                 .thenAccept(this::handlePostDetailLoaded)
                 .exceptionally(throwable -> {
-                    if (client != null) {
-                        client.execute(() -> {
-                            isLoadingDetails = false;
-                            System.err.println(
-                                    "[PostDetailPanel] Failed to load post details: " + throwable.getMessage());
-                        });
-                    }
+                    client.execute(() -> {
+                        isLoadingDetails = false;
+                        System.err.println(
+                                "[PostDetailPanel] Failed to load post details: " + throwable.getMessage());
+                    });
                     return null;
                 });
 
@@ -212,22 +210,20 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
     }
 
     private void handlePostDetailLoaded(ArchivePostDetail detail) {
-        if (client != null) {
-            client.execute(() -> {
-                this.postDetail = detail;
-                this.isLoadingDetails = false;
-                attachmentManager.setAvailableFiles(detail.attachments());
-                imageController.setImageInfos(detail.imageInfos());
+        client.execute(() -> {
+            this.postDetail = detail;
+            this.isLoadingDetails = false;
+            attachmentManager.setAvailableFiles(detail.attachments());
+            imageController.setImageInfos(detail.imageInfos());
 
-                List<String> detailImages = detail.images();
-                if (detailImages != null && !detailImages.isEmpty()) {
-                    imageController.setImages(detailImages);
-                    imageController.loadCurrentImageIfNeeded();
-                } else {
-                    imageController.setImages(List.of());
-                }
-            });
-        }
+            List<String> detailImages = detail.images();
+            if (detailImages != null && !detailImages.isEmpty()) {
+                imageController.setImages(detailImages);
+                imageController.loadCurrentImageIfNeeded();
+            } else {
+                imageController.setImages(List.of());
+            }
+        });
     }
 
 
@@ -279,7 +275,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
                     yPos,
                     width,
                     UITheme.Dimensions.BUTTON_HEIGHT,
-                    Component.nullToEmpty("Open Discord Thread"),
+                    UiText.of("Open Discord Thread"),
                     button -> openDiscordThread());
         }
         discordThreadButton.active = hasDiscordThread();
@@ -296,7 +292,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
                     yPos,
                     width,
                     UITheme.Dimensions.BUTTON_HEIGHT,
-                    Component.nullToEmpty("Open On Website"),
+                    UiText.of("Open On Website"),
                     button -> openWebsiteLink());
         }
         websiteButton.active = hasWebsiteLink();
@@ -316,7 +312,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
             return;
         }
         try {
-            Util.getPlatform().openUri(url);
+            UiPlatform.openUri(url);
         } catch (Exception e) {
             System.err.println("Failed to open Discord thread: " + e.getMessage());
         }
@@ -340,7 +336,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
             url = normalizedBase + "/archives/" + slug;
         }
         try {
-            Util.getPlatform().openUri(url);
+            UiPlatform.openUri(url);
         } catch (Exception e) {
             System.err.println("Failed to open website: " + e.getMessage());
         }
@@ -384,24 +380,25 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void render(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
+        var context = renderContext.graphics();
         int renderMouseX = mouseX;
         int renderMouseY = mouseY;
 
-        RenderUtil.fillRect(context, x, y, x + width, y + height, UITheme.Colors.PANEL_BG_SECONDARY);
+        RenderUtil.fillRect(renderContext, x, y, x + width, y + height, UITheme.Colors.PANEL_BG_SECONDARY);
 
-        RenderUtil.fillRect(context, x, y, x + 1, y + height, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, x, y, x + 1, y + height, UITheme.Colors.BUTTON_BORDER);
 
         if (postInfo == null) {
             String text = "Select a schematic to view details";
-            int textWidth = client.font.width(text);
-            RenderUtil.drawString(context, client.font, text,
+            int textWidth = client.font().width(text);
+            RenderUtil.drawString(renderContext, client.uiFont(), text,
                     x + (width - textWidth) / 2, y + height / 2 - 4, UITheme.Colors.TEXT_SUBTITLE);
             return;
         }
 
         int contentStartY = y + UITheme.Dimensions.PADDING;
-        RenderUtil.enableScissor(context, x + 1, contentStartY, x + width, y + height);
+        RenderUtil.enableScissor(renderContext, x + 1, contentStartY, x + width, y + height);
 
         int currentY = contentStartY + UITheme.Dimensions.PADDING - (int) scrollOffset;
         contentHeight = 0;
@@ -419,34 +416,34 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         int imageX = containerX + (containerWidth - actualImageWidth) / 2;
         int imageY = containerY + (containerHeight - actualImageHeight) / 2;
 
-        Identifier currentImageTexture = imageController.getCurrentImageTexture();
+        UiTextureId currentImageTexture = imageController.getCurrentImageTexture();
         boolean isLoadingImage = imageController.isLoadingImage();
 
         if (isLoadingImage) {
-            RenderUtil.fillRect(context, containerX, containerY, containerX + containerWidth, containerY + containerHeight,
+            RenderUtil.fillRect(renderContext, containerX, containerY, containerX + containerWidth, containerY + containerHeight,
                     UITheme.Colors.CONTAINER_BG);
             LoadingSpinner spinner = imageController.getLoadingSpinner();
             spinner.setPosition(
                     containerX + containerWidth / 2 - spinner.getWidth() / 2,
                     containerY + containerHeight / 2 - spinner.getHeight() / 2);
-            spinner.render(context, mouseX, mouseY, delta);
+            spinner.render(renderContext, mouseX, mouseY, delta);
         } else if (currentImageTexture != null) {
-            RenderUtil.fillRect(context, containerX, containerY, containerX + containerWidth, containerY + containerHeight,
+            RenderUtil.fillRect(renderContext, containerX, containerY, containerX + containerWidth, containerY + containerHeight,
                     UITheme.Colors.PANEL_BG);
             RenderUtil.blit(
-                    context,
-                    RenderPipelines.GUI_TEXTURED,
+                    renderContext,
+                    UiRenderPipeline.GUI_TEXTURED,
                     currentImageTexture,
                     imageX, imageY,
                     0, 0,
                     actualImageWidth, actualImageHeight,
                     actualImageWidth, actualImageHeight);
         } else {
-            RenderUtil.fillRect(context, containerX, containerY, containerX + containerWidth, containerY + containerHeight,
+            RenderUtil.fillRect(renderContext, containerX, containerY, containerX + containerWidth, containerY + containerHeight,
                     UITheme.Colors.CONTAINER_BG);
             String noImg = isCompactMode() ? "..." : "No image";
-            int tw = client.font.width(noImg);
-            RenderUtil.drawString(context, client.font, noImg,
+            int tw = client.font().width(noImg);
+            RenderUtil.drawString(renderContext, client.uiFont(), noImg,
                     containerX + (containerWidth - tw) / 2, containerY + containerHeight / 2 - 4,
                     UITheme.Colors.TEXT_SUBTITLE);
         }
@@ -457,9 +454,9 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         String imageDescription = imageController.getCurrentImageDescription();
         if (imageDescription != null && !imageDescription.isEmpty()) {
             int descWidth = width - UITheme.Dimensions.PADDING * 2;
-            RenderUtil.drawWrappedText(context, client.font, imageDescription, x + UITheme.Dimensions.PADDING, currentY, descWidth,
+            RenderUtil.drawWrappedText(renderContext, client.uiFont(), imageDescription, x + UITheme.Dimensions.PADDING, currentY, descWidth,
                     UITheme.Colors.TEXT_SUBTITLE);
-            int descHeight = RenderUtil.getWrappedTextHeight(client.font, imageDescription, descWidth);
+            int descHeight = RenderUtil.getWrappedTextHeight(client.uiFont(), imageDescription, descWidth);
             currentY += descHeight + 6;
             contentHeight += descHeight + 6;
         }
@@ -467,7 +464,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         if (imageController.hasMultipleImages()) {
             String indicator = String.format("%d / %d", imageController.getCurrentImageIndex() + 1,
                     imageController.getImageCount());
-            int indicatorWidth = client.font.width(indicator);
+            int indicatorWidth = client.font().width(indicator);
             int indicatorX = x + (width - indicatorWidth) / 2;
             int btnY = currentY;
 
@@ -477,7 +474,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
                 prevImageButton.render(context, renderMouseX, renderMouseY, delta);
             }
 
-            RenderUtil.drawString(context, client.font, indicator, indicatorX, btnY + 4, UITheme.Colors.TEXT_SUBTITLE);
+            RenderUtil.drawString(renderContext, client.uiFont(), indicator, indicatorX, btnY + 4, UITheme.Colors.TEXT_SUBTITLE);
 
             if (nextImageButton != null) {
                 nextImageButton.render(context, renderMouseX, renderMouseY, delta);
@@ -488,30 +485,30 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         }
 
         String title = postInfo.title() != null ? postInfo.title() : "Untitled";
-        RenderUtil.drawWrappedText(context, client.font, title, x + UITheme.Dimensions.PADDING, currentY,
+        RenderUtil.drawWrappedText(renderContext, client.uiFont(), title, x + UITheme.Dimensions.PADDING, currentY,
                 width - UITheme.Dimensions.PADDING * 2, UITheme.Colors.TEXT_PRIMARY);
-        int titleHeight = RenderUtil.getWrappedTextHeight(client.font, title, width - UITheme.Dimensions.PADDING * 2);
+        int titleHeight = RenderUtil.getWrappedTextHeight(client.uiFont(), title, width - UITheme.Dimensions.PADDING * 2);
         currentY += titleHeight + 8;
         contentHeight += titleHeight + 8;
 
         String metaLine = buildMetaLine();
-        RenderUtil.drawString(context, client.font, metaLine, x + UITheme.Dimensions.PADDING, currentY,
+        RenderUtil.drawString(renderContext, client.uiFont(), metaLine, x + UITheme.Dimensions.PADDING, currentY,
                 UITheme.Colors.TEXT_SUBTITLE);
         currentY += 16;
         contentHeight += 16;
 
         if (postDetail != null && postDetail.authors() != null && !postDetail.authors().isEmpty()) {
             String authorLine = "By: " + String.join(", ", postDetail.authors());
-            RenderUtil.drawWrappedText(context, client.font, authorLine, x + UITheme.Dimensions.PADDING, currentY,
+            RenderUtil.drawWrappedText(renderContext, client.uiFont(), authorLine, x + UITheme.Dimensions.PADDING, currentY,
                     width - UITheme.Dimensions.PADDING * 2, UITheme.Colors.TEXT_SUBTITLE);
-            int authorHeight = RenderUtil.getWrappedTextHeight(client.font, authorLine, width - UITheme.Dimensions.PADDING * 2);
+            int authorHeight = RenderUtil.getWrappedTextHeight(client.uiFont(), authorLine, width - UITheme.Dimensions.PADDING * 2);
             currentY += authorHeight + 4;
             contentHeight += authorHeight + 4;
         }
 
         String[] tags = postInfo.tags();
         if (tags != null && tags.length > 0) {
-            RenderUtil.drawString(context, client.font, "Tags:", x + UITheme.Dimensions.PADDING, currentY,
+            RenderUtil.drawString(renderContext, client.uiFont(), "Tags:", x + UITheme.Dimensions.PADDING, currentY,
                     UITheme.Colors.TEXT_SUBTITLE);
             currentY += 12;
             contentHeight += 12;
@@ -519,14 +516,14 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
             int tagX = x + UITheme.Dimensions.PADDING;
             for (String tag : TagUtil.orderTags(tags, server)) {
                 String displayTag = TagUtil.formatTagLabel(tag, server);
-                int tagWidth = client.font.width(displayTag) + 8;
+                int tagWidth = client.font().width(displayTag) + 8;
                 if (tagX + tagWidth > x + width - UITheme.Dimensions.PADDING) {
                     tagX = x + UITheme.Dimensions.PADDING;
                     currentY += 14;
                     contentHeight += 14;
                 }
-                RenderUtil.fillRect(context, tagX, currentY, tagX + tagWidth, currentY + 12, TagUtil.getTagColor(tag, server));
-                RenderUtil.drawString(context, client.font, displayTag, tagX + 4, currentY + 2, UITheme.Colors.TEXT_TAG);
+                RenderUtil.fillRect(renderContext, tagX, currentY, tagX + tagWidth, currentY + 12, TagUtil.getTagColor(tag, server));
+                RenderUtil.drawString(renderContext, client.uiFont(), displayTag, tagX + 4, currentY + 2, UITheme.Colors.TEXT_TAG);
                 tagX += tagWidth + 4;
             }
             currentY += 16;
@@ -540,7 +537,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
                 if (section == null)
                     continue;
                 String header = section.title() != null ? section.title() : "Details";
-                RenderUtil.drawString(context, client.font, header + ":", x + UITheme.Dimensions.PADDING, currentY,
+                RenderUtil.drawString(renderContext, client.uiFont(), header + ":", x + UITheme.Dimensions.PADDING, currentY,
                         UITheme.Colors.TEXT_SUBTITLE);
                 currentY += 12;
                 contentHeight += 12;
@@ -550,9 +547,9 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
                     for (String line : lines) {
                         if (line == null || line.isEmpty())
                             continue;
-                        RenderUtil.drawWrappedText(context, client.font, line, x + UITheme.Dimensions.PADDING, currentY,
+                        RenderUtil.drawWrappedText(renderContext, client.uiFont(), line, x + UITheme.Dimensions.PADDING, currentY,
                                 width - UITheme.Dimensions.PADDING * 2, UITheme.Colors.TEXT_TAG);
-                        int lineHeight = RenderUtil.getWrappedTextHeight(client.font, line, width - UITheme.Dimensions.PADDING * 2);
+                        int lineHeight = RenderUtil.getWrappedTextHeight(client.uiFont(), line, width - UITheme.Dimensions.PADDING * 2);
                         currentY += lineHeight;
                         contentHeight += lineHeight;
                     }
@@ -562,13 +559,13 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
             }
         } else if (isLoadingDetails) {
             currentY += 8;
-            RenderUtil.drawString(context, client.font, "Loading details...", x + UITheme.Dimensions.PADDING, currentY,
+            RenderUtil.drawString(renderContext, client.uiFont(), "Loading details...", x + UITheme.Dimensions.PADDING, currentY,
                     UITheme.Colors.TEXT_SUBTITLE);
             contentHeight += 20;
         }
 
         if (attachmentManager.hasAttachments()) {
-            RenderUtil.drawString(context, client.font, "Attachments:", x + UITheme.Dimensions.PADDING, currentY,
+            RenderUtil.drawString(renderContext, client.uiFont(), "Attachments:", x + UITheme.Dimensions.PADDING, currentY,
                     UITheme.Colors.TEXT_SUBTITLE);
             currentY += 12;
             contentHeight += 12;
@@ -581,32 +578,32 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
                 int rowY = currentY;
                 String nameText = attachment.name() != null ? attachment.name() : "Attachment";
                 String meta = attachmentManager.buildAttachmentMeta(attachment);
-                int nameHeight = (int) (client.font.lineHeight * 0.85f) + 6;
-                int metaHeight = (meta != null && !meta.isEmpty()) ? client.font.lineHeight + 2 : 0;
+                int nameHeight = (int) (client.font().lineHeight * 0.85f) + 6;
+                int metaHeight = (meta != null && !meta.isEmpty()) ? client.font().lineHeight + 2 : 0;
                 int descWidth = rowWidth - 12;
                 int descHeight = 0;
                 if (attachment.description() != null && !attachment.description().isEmpty()) {
-                    descHeight = RenderUtil.getWrappedTextHeight(client.font, attachment.description(), descWidth) + 2;
+                    descHeight = RenderUtil.getWrappedTextHeight(client.uiFont(), attachment.description(), descWidth) + 2;
                 }
                 int rowHeight = nameHeight + metaHeight + descHeight + 4;
 
                 boolean isHover = renderMouseX >= rowX && renderMouseX <= rowX + rowWidth &&
                         renderMouseY >= rowY && renderMouseY <= rowY + rowHeight;
                 int bgColor = isHover ? UITheme.Colors.BUTTON_BG_HOVER : UITheme.Colors.BUTTON_BG;
-                RenderUtil.fillRect(context, rowX, rowY, rowX + rowWidth, rowY + rowHeight, bgColor);
+                RenderUtil.fillRect(renderContext, rowX, rowY, rowX + rowWidth, rowY + rowHeight, bgColor);
 
                 int cursorY = rowY + 3;
-                RenderUtil.drawScaledString(context, nameText, rowX + 6, cursorY, UITheme.Colors.TEXT_PRIMARY, 0.85f,
+                RenderUtil.drawScaledString(renderContext, nameText, rowX + 6, cursorY, UITheme.Colors.TEXT_PRIMARY, 0.85f,
                         rowWidth - 12);
                 cursorY += nameHeight;
 
                 if (metaHeight > 0) {
-                    RenderUtil.drawString(context, client.font, meta, rowX + 6, cursorY - 2, UITheme.Colors.TEXT_SUBTITLE);
+                    RenderUtil.drawString(renderContext, client.uiFont(), meta, rowX + 6, cursorY - 2, UITheme.Colors.TEXT_SUBTITLE);
                     cursorY += metaHeight;
                 }
 
                 if (descHeight > 0) {
-                    RenderUtil.drawWrappedText(context, client.font, attachment.description(), rowX + 6, cursorY, descWidth,
+                    RenderUtil.drawWrappedText(renderContext, client.uiFont(), attachment.description(), rowX + 6, cursorY, descWidth,
                             UITheme.Colors.TEXT_TAG);
                     cursorY += descHeight;
                 }
@@ -640,20 +637,20 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
 
         contentHeight += UITheme.Dimensions.PADDING * 2;
 
-        RenderUtil.disableScissor(context);
+        RenderUtil.disableScissor(renderContext);
 
         if (contentHeight > height) {
             scrollBar.setScrollData(contentHeight, height);
             scrollBar.setScrollPercentage(scrollOffset / Math.max(1, contentHeight - height));
 
-            if (client != null && client.getWindow() != null) {
-                long windowHandle = client.getWindow().handle();
-                if (scrollBar.updateAndRender(context, mouseX, mouseY, delta, windowHandle)) {
+            if (client.windowHandle() != 0L) {
+                long windowHandle = client.windowHandle();
+                if (scrollBar.updateAndRender(renderContext, mouseX, mouseY, delta, windowHandle)) {
                     double maxScroll = Math.max(0, contentHeight - height);
                     scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
                 }
             } else {
-                scrollBar.render(context, mouseX, mouseY, delta);
+                scrollBar.render(renderContext, mouseX, mouseY, delta);
             }
         }
 
@@ -663,7 +660,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
         return imageController.hasImageViewerOpen();
     }
 
-    public void renderImageViewer(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public void renderImageViewer(UiRenderContext context, int mouseX, int mouseY, float delta) {
         imageController.renderImageViewer(context, mouseX, mouseY, delta);
     }
 
@@ -699,7 +696,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         int button = click.button();
@@ -736,7 +733,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
             return true;
         }
 
-        Identifier currentImageTexture = imageController.getCurrentImageTexture();
+        UiTextureId currentImageTexture = imageController.getCurrentImageTexture();
         boolean isLoadingImage = imageController.isLoadingImage();
         if (button == 0 && currentImageTexture != null && !isLoadingImage && postInfo != null) {
             int contentStartY = y + UITheme.Dimensions.PADDING;
@@ -797,15 +794,15 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
     }
 
     private void openImageViewer() {
-        if (imageController.getCurrentImageTexture() != null && client != null && client.getWindow() != null) {
+        if (imageController.getCurrentImageTexture() != null && client.windowHandle() != 0L) {
             imageController.openImageViewer(
-                    client.getWindow().getGuiScaledWidth(),
-                    client.getWindow().getGuiScaledHeight());
+                    client.guiScaledWidth(),
+                    client.guiScaledHeight());
         }
     }
 
     @Override
-    public boolean mouseDragged(MouseButtonEvent click, double offsetX, double offsetY) {
+    public boolean mouseDragged(UiMouseEvent click, double offsetX, double offsetY) {
         if (scrollBar != null
                 && (scrollBar.isDragging() || scrollBar.mouseDragged(click, offsetX, offsetY))) {
             double maxScroll = Math.max(0, contentHeight - height);
@@ -816,7 +813,7 @@ public class PostDetailPanel implements Renderable, GuiEventListener {
     }
 
     @Override
-    public boolean mouseReleased(MouseButtonEvent click) {
+    public boolean mouseReleased(UiMouseEvent click) {
         if (imageController.hasImageViewerOpen()) {
             return imageController.mouseReleased(click);
         }

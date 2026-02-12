@@ -2,19 +2,18 @@ package com.andrews.archivedownloader.gui.widget;
 
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
+import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
+import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
+import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
+import com.andrews.archivedownloader.wrapper.text.UiText;
 
 import java.util.function.Consumer;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Renderable;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.Component;
-
 import org.lwjgl.glfw.GLFW;
 
-public class ApiTokenPopup implements Renderable, GuiEventListener {
+public class ApiTokenPopup implements UiRenderable, UiEventListener {
     private static final int MAX_POPUP_WIDTH = 460;
     private static final int MIN_POPUP_WIDTH = 280;
     private static final int STATUS_HEIGHT = UITheme.Typography.LINE_HEIGHT * 2;
@@ -58,9 +57,9 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
         this.onCancel = onCancel != null ? onCancel : () -> {};
         this.canClearToken = hasExistingToken;
 
-        Minecraft client = Minecraft.getInstance();
-        int screenWidth = client.getWindow().getGuiScaledWidth();
-        int screenHeight = client.getWindow().getGuiScaledHeight();
+        UiMinecraftClient client = UiMinecraftClient.getInstance();
+        int screenWidth = client.guiScaledWidth();
+        int screenHeight = client.guiScaledHeight();
         int horizontalMargin = UITheme.Dimensions.PADDING * 2;
         int verticalMargin = UITheme.Dimensions.PADDING * 2;
         int maxWidth = Math.max(220, screenWidth - horizontalMargin);
@@ -68,7 +67,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
 
         int messageWidth = popupWidth - UITheme.Dimensions.PADDING * 2;
         this.descriptionText = buildDescription(hasExistingToken);
-        int measuredDescriptionHeight = RenderUtil.getWrappedTextHeight(client.font, descriptionText, messageWidth);
+        int measuredDescriptionHeight = RenderUtil.getWrappedTextHeight(client.uiFont(), descriptionText, messageWidth);
         int fixedHeight =
             UITheme.Dimensions.PADDING +
             UITheme.Typography.LINE_HEIGHT +
@@ -105,7 +104,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
             y + UITheme.Dimensions.PADDING + UITheme.Typography.LINE_HEIGHT + UITheme.Dimensions.PADDING + this.descriptionHeight + UITheme.Dimensions.PADDING,
             popupWidth - UITheme.Dimensions.PADDING * 2,
             UITheme.Dimensions.SEARCH_BAR_HEIGHT,
-            Component.literal("API Token")
+            UiText.literal("API Token")
         );
         tokenField.setSuggestion(hasExistingToken
             ? "Token saved. Paste a new token to replace it."
@@ -120,7 +119,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
             buttonY,
             buttonWidth,
             UITheme.Dimensions.BUTTON_HEIGHT,
-            Component.literal("Cancel"),
+            UiText.literal("Cancel"),
             button -> this.onCancel.run()
         );
         clearButton = new CustomButton(
@@ -128,7 +127,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
             buttonY,
             buttonWidth,
             UITheme.Dimensions.BUTTON_HEIGHT,
-            Component.literal("Clear"),
+            UiText.literal("Clear"),
             button -> this.onClear.run()
         );
         clearButton.active = canClearToken;
@@ -137,7 +136,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
             buttonY,
             buttonWidth,
             UITheme.Dimensions.BUTTON_HEIGHT,
-            Component.literal("Save"),
+            UiText.literal("Save"),
             button -> saveToken()
         );
     }
@@ -185,9 +184,10 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
     }
 
     @Override
-    public void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-        Minecraft client = Minecraft.getInstance();
-        long windowHandle = client.getWindow() != null ? client.getWindow().handle() : 0L;
+    public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
+        var graphics = context.graphics();
+        UiMinecraftClient client = UiMinecraftClient.getInstance();
+        long windowHandle = client.windowHandle();
         if (windowHandle != 0L) {
             boolean enterPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS
                 || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_KP_ENTER) == GLFW.GLFW_PRESS;
@@ -203,7 +203,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
             wasEscapePressed = escapePressed;
         }
 
-        RenderUtil.fillRect(context, 0, 0, client.getWindow().getGuiScaledWidth(), client.getWindow().getGuiScaledHeight(), UITheme.Colors.OVERLAY_BG);
+        RenderUtil.fillRect(context, 0, 0, client.guiScaledWidth(), client.guiScaledHeight(), UITheme.Colors.OVERLAY_BG);
         RenderUtil.fillRect(context, x, y, x + popupWidth, y + popupHeight, UITheme.Colors.BUTTON_BG_DISABLED);
         RenderUtil.fillRect(context, x, y, x + popupWidth, y + UITheme.Dimensions.BORDER_WIDTH, UITheme.Colors.BUTTON_BORDER);
         RenderUtil.fillRect(context, x, y + popupHeight - UITheme.Dimensions.BORDER_WIDTH, x + popupWidth, y + popupHeight, UITheme.Colors.BUTTON_BORDER);
@@ -213,7 +213,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
         String title = "API Token - " + serverName;
         RenderUtil.drawCenteredString(
             context,
-            client.font,
+            client.uiFont(),
             title,
             x + popupWidth / 2,
             y + UITheme.Dimensions.PADDING,
@@ -230,7 +230,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
         );
         RenderUtil.drawWrappedText(
             context,
-            client.font,
+            client.uiFont(),
             descriptionText,
             x + UITheme.Dimensions.PADDING,
             messageY,
@@ -239,7 +239,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
         );
         RenderUtil.disableScissor(context);
 
-        tokenField.render(context, mouseX, mouseY, delta);
+        tokenField.render(graphics, mouseX, mouseY, delta);
         int statusY = tokenField.getY() + tokenField.getHeight() + 4;
         RenderUtil.enableScissor(
             context,
@@ -250,7 +250,7 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
         );
         RenderUtil.drawWrappedText(
             context,
-            client.font,
+            client.uiFont(),
             statusMessage,
             x + UITheme.Dimensions.PADDING,
             statusY,
@@ -258,13 +258,13 @@ public class ApiTokenPopup implements Renderable, GuiEventListener {
             statusColor
         );
         RenderUtil.disableScissor(context);
-        cancelButton.render(context, mouseX, mouseY, delta);
-        clearButton.render(context, mouseX, mouseY, delta);
-        saveButton.render(context, mouseX, mouseY, delta);
+        cancelButton.render(graphics, mouseX, mouseY, delta);
+        clearButton.render(graphics, mouseX, mouseY, delta);
+        saveButton.render(graphics, mouseX, mouseY, delta);
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent click, boolean doubled) {
+    public boolean mouseClicked(UiMouseEvent click, boolean doubled) {
         double mouseX = click.x();
         double mouseY = click.y();
         int button = click.button();

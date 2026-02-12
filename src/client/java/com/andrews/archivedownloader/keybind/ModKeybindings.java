@@ -16,7 +16,12 @@ public final class ModKeybindings {
 				KEY_OPEN_MENU,
 				InputConstants.Type.KEYSYM,
 				DEFAULT_KEY,
-				KeyMapping.Category.MISC
+				//? >=1.21.9 {
+				 KeyMapping.Category.MISC
+				//? } else {
+				/*KeyMapping.CATEGORY_MISC
+				*///? }
+
 		));
 	}
 
