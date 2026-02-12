@@ -101,7 +101,6 @@ tasks {
     }
 }
 
-/*
 // Publishes builds to Modrinth and Curseforge with changelog from the CHANGELOG.md file
 publishMods {
     file = tasks.remapJar.map { it.archiveFile.get() }
@@ -133,7 +132,7 @@ publishMods {
         }
     }
 }
- */
+
 /*
 // Publishes builds to a maven repository under `com.example:template:0.1.0+mc`
 publishing {
