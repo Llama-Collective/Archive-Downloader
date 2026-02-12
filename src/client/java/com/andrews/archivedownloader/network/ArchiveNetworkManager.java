@@ -952,6 +952,7 @@ public class ArchiveNetworkManager {
 					canDownload,
 					sizeText,
 					attachment.description,
+					attachment.hash,
 					attachment.litematic != null ? new ArchiveAttachment.LitematicInfo(
 						attachment.litematic.version,
 						attachment.litematic.size,
@@ -1222,6 +1223,7 @@ public class ArchiveNetworkManager {
 					canDownload,
 					sizeText,
 					attachment.description,
+					attachment.hash,
 					attachment.litematic != null ? new ArchiveAttachment.LitematicInfo(
 						attachment.litematic.version,
 						attachment.litematic.size,
@@ -1814,6 +1816,7 @@ public class ArchiveNetworkManager {
 		String downloadUrl;
 		String description;
 		String contentType;
+		String hash;
 		ArchiveLitematicInfo litematic;
 		ArchiveWdlInfo wdl;
 		ArchiveYoutubeInfo youtube;
@@ -1864,6 +1867,7 @@ public class ArchiveNetworkManager {
 		String downloadUrl;
 		String description;
 		String contentType;
+		String hash;
 		ArchiveLitematicInfo litematic;
 		ArchiveWdlInfo wdl;
 		ArchiveYoutubeInfo youtube;

@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.security.MessageDigest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -132,8 +133,26 @@ public class AttachmentManager {
     }
 
     private void downloadSchematic(ArchiveAttachment file) {
-        downloadStatus = "Downloading...";
+        downloadStatus = "Checking existing downloads...";
 
+        CompletableFuture.supplyAsync(() -> findExistingDownloadedAttachment(file), IO_EXECUTOR)
+                .thenAccept(existingPath -> {
+                    if (existingPath != null) {
+                        handleExistingAttachment(file, existingPath);
+                        return;
+                    }
+                    client.execute(() -> downloadStatus = "Downloading...");
+                    startSchematicDownload(file);
+                })
+                .exceptionally(e -> {
+                    System.err.println("[Download] Failed to check existing files: " + e.getMessage());
+                    client.execute(() -> downloadStatus = "Downloading...");
+                    startSchematicDownload(file);
+                    return null;
+                });
+    }
+
+    private void startSchematicDownload(ArchiveAttachment file) {
         CompletableFuture.runAsync(() -> {
             String downloadUrl = file.downloadUrl();
             if (downloadUrl == null || downloadUrl.isEmpty()) {
@@ -198,16 +217,25 @@ public class AttachmentManager {
             return;
         }
 
-        saveAsync(file, response.body())
+        String expectedHash = normalizeSha256(file != null ? file.hash() : null);
+        String actualHash = expectedHash != null ? computeSha256(response.body()) : null;
+        boolean hashMismatch = expectedHash != null && actualHash != null && !expectedHash.equals(actualHash);
+
+        processAttachmentBytes(file, response.body(), false)
                 .thenAccept(result -> {
                     final String finalFileName = result.fileName();
                     final Path finalPath = result.path();
                     final List<String> worldNames = result.worldNames();
+                    final boolean finalHashMismatch = hashMismatch;
                     client.execute(() -> {
                         boolean attemptedAutoLoad = shouldAutoLoadSchematic(file, finalPath);
                         boolean autoLoaded = attemptedAutoLoad && LitematicaAutoLoader.loadIntoWorld(finalPath);
-                        downloadStatus = buildDownloadStatus(result, finalFileName, attemptedAutoLoad, autoLoaded);
+                        downloadStatus = buildDownloadStatus(result, finalFileName, attemptedAutoLoad, autoLoaded,
+                                finalHashMismatch);
                         showDownloadToast(result, finalFileName, finalPath, worldNames, autoLoaded, attemptedAutoLoad);
+                        if (finalHashMismatch) {
+                            showToast("Hash mismatch warning", finalFileName + " did not match expected SHA-256");
+                        }
                         System.out.println("Downloaded to: " + finalPath.toAbsolutePath());
                     });
                 })
@@ -247,6 +275,224 @@ public class AttachmentManager {
         });
     }
 
+    private void handleExistingSchematic(ArchiveAttachment attachment, Path existingPath) {
+        String fileName = existingPath.getFileName() != null
+                ? existingPath.getFileName().toString()
+                : existingPath.toString();
+        boolean attemptedAutoLoad = shouldAutoLoadSchematic(attachment, existingPath);
+        boolean autoLoaded = attemptedAutoLoad && LitematicaAutoLoader.loadIntoWorld(existingPath);
+
+        if (!attemptedAutoLoad) {
+            downloadStatus = "✓ Reused existing file: " + fileName;
+            showToast("Already downloaded", fileName);
+            return;
+        }
+
+        if (autoLoaded) {
+            downloadStatus = "✓ Loaded existing file: " + fileName;
+            showToast("Loaded existing schematic", fileName);
+        } else {
+            downloadStatus = "✓ Reused existing file (auto-load failed): " + fileName;
+            showToast("Already downloaded", fileName + " (auto-load failed)");
+        }
+    }
+
+    private void handleExistingAttachment(ArchiveAttachment attachment, Path existingPath) {
+        if (attachment != null && attachment.wdl() != null) {
+            client.execute(() -> downloadStatus = "Using cached WDL archive...");
+            CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return Files.readAllBytes(existingPath);
+                        } catch (Exception e) {
+                            throw new CompletionException(e);
+                        }
+                    }, IO_EXECUTOR)
+                    .thenCompose(bytes -> processAttachmentBytes(attachment, bytes, true))
+                    .thenAccept(result -> client.execute(() -> {
+                        String fileName = result.fileName();
+                        String base = result.isWorldDownload()
+                                ? "✓ World saved from cache: saves/" + fileName
+                                : "✓ Reused existing file: " + fileName;
+                        downloadStatus = base;
+                        showDownloadToast(result, fileName, result.path(), result.worldNames(), false, false);
+                    }))
+                    .exceptionally(ex -> {
+                        handleDownloadError(ex);
+                        return null;
+                    });
+            return;
+        }
+        client.execute(() -> handleExistingSchematic(attachment, existingPath));
+    }
+
+    private CompletableFuture<SaveResult> processAttachmentBytes(ArchiveAttachment attachment, byte[] data, boolean fromCache) {
+        CompletableFuture<Path> rawSaveFuture;
+        if (!fromCache && attachment != null && attachment.wdl() != null) {
+            rawSaveFuture = saveRawWdlZipAsync(attachment, data);
+        } else {
+            rawSaveFuture = CompletableFuture.completedFuture(null);
+        }
+        return rawSaveFuture.thenCompose(path -> saveAsync(attachment, data));
+    }
+
+    private Path findExistingDownloadedAttachment(ArchiveAttachment attachment) {
+        if (attachment == null) {
+            return null;
+        }
+
+        String expectedHash = normalizeSha256(attachment.hash());
+        if (expectedHash == null) {
+            return null;
+        }
+
+        if (attachment.wdl() != null) {
+            String rawBaseName = resolveAttachmentBaseName(attachment, ".zip", "world");
+            return findByHashInDirectory(getRawWdlDirectory(), rawBaseName, expectedHash);
+        }
+
+        String baseName = resolveAttachmentBaseName(attachment, ".litematic", "download");
+
+        ServerEntry targetServer = server != null ? server : ServerDictionary.getDefaultServer();
+        Path baseDir = Paths.get(DownloadSettings.getInstance().getAbsoluteDownloadPath(targetServer));
+
+        List<Path> candidateDirs = List.of(baseDir, baseDir.resolve("submissions"));
+        for (Path dir : candidateDirs) {
+            Path match = findByHashInDirectory(dir, baseName, expectedHash);
+            if (match != null) {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private CompletableFuture<Path> saveRawWdlZipAsync(ArchiveAttachment attachment, byte[] data) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (attachment == null || attachment.wdl() == null) {
+                    return null;
+                }
+                Path rawDir = getRawWdlDirectory();
+                Files.createDirectories(rawDir);
+
+                String baseName = resolveAttachmentBaseName(attachment, ".zip", "world");
+                String expectedHash = normalizeSha256(attachment.hash());
+                if (expectedHash != null) {
+                    Path existingByHash = findByHashInDirectory(rawDir, baseName, expectedHash);
+                    if (existingByHash != null) {
+                        return existingByHash;
+                    }
+                }
+
+                Path existingIdentical = findIdenticalFile(rawDir, baseName, data);
+                if (existingIdentical != null) {
+                    return existingIdentical;
+                }
+
+                Path outputFile = ensureUniqueName(rawDir, baseName);
+                Files.write(outputFile, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                return outputFile;
+            } catch (Exception e) {
+                System.err.println("[Download] Failed to cache raw WDL zip: " + e.getMessage());
+                return null;
+            }
+        }, IO_EXECUTOR);
+    }
+
+    private Path getRawWdlDirectory() {
+        ServerEntry targetServer = server != null ? server : ServerDictionary.getDefaultServer();
+        Path baseDir = Paths.get(DownloadSettings.getInstance().getAbsoluteDownloadPath(targetServer));
+        return baseDir.resolve("rawWDLs");
+    }
+
+    private String resolveAttachmentBaseName(ArchiveAttachment attachment, String defaultExtension, String fallbackName) {
+        String baseName = attachment != null && attachment.name() != null ? attachment.name() : fallbackName;
+        if (!baseName.contains(".")) {
+            baseName += defaultExtension;
+        }
+        return baseName;
+    }
+
+    private Path findByHashInDirectory(Path dir, String baseName, String expectedHash) {
+        if (dir == null || !Files.isDirectory(dir)) {
+            return null;
+        }
+        int dot = baseName.lastIndexOf('.');
+        String nameOnly = dot > 0 ? baseName.substring(0, dot) : baseName;
+        String ext = dot > 0 ? baseName.substring(dot) : "";
+        Path candidate = dir.resolve(baseName);
+        int counter = 1;
+        while (Files.exists(candidate)) {
+            if (Files.isRegularFile(candidate)) {
+                try {
+                    String fileHash = computeSha256(candidate);
+                    if (expectedHash.equals(fileHash)) {
+                        return candidate;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            candidate = dir.resolve(nameOnly + "_" + counter + ext);
+            counter++;
+        }
+        return null;
+    }
+
+    private String computeSha256(Path path) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[8192];
+        try (var input = Files.newInputStream(path)) {
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+        }
+        byte[] hash = digest.digest();
+        StringBuilder hex = new StringBuilder(hash.length * 2);
+        for (byte b : hash) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+            hex.append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
+    }
+
+    private String computeSha256(byte[] data) {
+        if (data == null) {
+            return null;
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(data);
+            byte[] hash = digest.digest();
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String normalizeSha256(String hash) {
+        if (hash == null) {
+            return null;
+        }
+        String normalized = hash.trim().toLowerCase(Locale.ROOT);
+        if (normalized.length() != 64) {
+            return null;
+        }
+        for (int i = 0; i < normalized.length(); i++) {
+            char c = normalized.charAt(i);
+            boolean isHex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            if (!isHex) {
+                return null;
+            }
+        }
+        return normalized;
+    }
+
     private boolean shouldAutoLoadSchematic(ArchiveAttachment attachment, Path savedPath) {
         if (attachment != null && attachment.wdl() != null) {
             return false;
@@ -259,14 +505,15 @@ public class AttachmentManager {
     }
 
     private String buildDownloadStatus(SaveResult result, String fileName, boolean attemptedAutoLoad,
-            boolean autoLoaded) {
+            boolean autoLoaded, boolean hashMismatch) {
         String base = result.isWorldDownload()
                 ? "✓ World saved: saves/" + fileName
                 : "✓ Downloaded: " + fileName;
         if (result.isWorldDownload() || !attemptedAutoLoad) {
-            return base;
+            return hashMismatch ? (base + " [WARNING: hash mismatch]") : base;
         }
-        return autoLoaded ? ("✓ Loaded " + fileName) : "- Downloaded (but failed to load): " + fileName;
+        String status = autoLoaded ? ("✓ Loaded " + fileName) : "- Downloaded (but failed to load): " + fileName;
+        return hashMismatch ? (status + " [WARNING: hash mismatch]") : status;
     }
 
     private CompletableFuture<SaveResult> saveAsync(ArchiveAttachment attachment, byte[] data) {
@@ -572,27 +819,21 @@ public class AttachmentManager {
 
     private Path findIdenticalFile(Path dir, String fileName, byte[] data) {
         int dot = fileName.lastIndexOf('.');
-        String base = dot > 0 ? fileName.substring(0, dot) : fileName;
+        String nameOnly = dot > 0 ? fileName.substring(0, dot) : fileName;
         String ext = dot > 0 ? fileName.substring(dot) : "";
-
-        try (var stream = Files.newDirectoryStream(dir)) {
-            for (Path path : stream) {
-                if (!Files.isRegularFile(path))
-                    continue;
-                String name = path.getFileName().toString();
-                if (!name.startsWith(base) || !name.endsWith(ext))
-                    continue;
-                String middle = name.substring(base.length(), name.length() - ext.length());
-                if (!middle.isEmpty() && !middle.matches("_\\d+"))
-                    continue;
+        Path candidate = dir.resolve(fileName);
+        int counter = 1;
+        while (Files.exists(candidate)) {
+            if (Files.isRegularFile(candidate)) {
                 try {
-                    if (Files.size(path) == data.length && Arrays.equals(Files.readAllBytes(path), data)) {
-                        return path;
+                    if (Files.size(candidate) == data.length && Arrays.equals(Files.readAllBytes(candidate), data)) {
+                        return candidate;
                     }
                 } catch (Exception ignored) {
                 }
             }
-        } catch (Exception ignored) {
+            candidate = dir.resolve(nameOnly + "_" + counter + ext);
+            counter++;
         }
         return null;
     }

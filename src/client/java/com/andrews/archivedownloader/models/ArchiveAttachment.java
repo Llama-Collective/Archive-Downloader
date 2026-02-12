@@ -7,6 +7,7 @@ public record ArchiveAttachment(
 	boolean canDownload,
 	String sizeText,
 	String description,
+	String hash,
 	LitematicInfo litematic,
 	WdlInfo wdl,
 	YoutubeInfo youtube
