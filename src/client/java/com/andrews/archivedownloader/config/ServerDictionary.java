@@ -6,6 +6,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,12 +16,15 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import net.fabricmc.loader.api.FabricLoader;
 
 /**
  * Runtime catalog of supported servers and update metadata.
  */
 public final class ServerDictionary {
     private static final String MOD_DATA_URL = "https://raw.githubusercontent.com/Llama-Collective/llama-archives/refs/heads/main/mod_data.json";
+    private static final String OFFLINE_CACHE_DIR = "archivedownloader/offlinecache/global";
+    private static final String MOD_DATA_CACHE_FILE = "mod_data.json";
     private static final int TIMEOUT_SECONDS = 10;
     private static final Gson GSON = new Gson();
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
@@ -123,12 +129,70 @@ public final class ServerDictionary {
                 if (response.statusCode() != 200) {
                     throw new CompletionException(new RuntimeException("HTTP " + response.statusCode() + " for " + MOD_DATA_URL));
                 }
-                RemoteModData parsed = GSON.fromJson(response.body(), RemoteModData.class);
+                String body = response.body();
+                if (body == null || body.isBlank()) {
+                    throw new CompletionException(new RuntimeException("Empty metadata response"));
+                }
+                writeModDataCache(body);
+                RemoteModData parsed = GSON.fromJson(body, RemoteModData.class);
                 if (parsed == null) {
                     throw new CompletionException(new RuntimeException("Empty metadata response"));
                 }
                 return parsed;
+            })
+            .handle((data, throwable) -> {
+                if (throwable == null) {
+                    return data;
+                }
+                String cached = readModDataCache();
+                if (cached != null && !cached.isBlank()) {
+                    RemoteModData parsed = GSON.fromJson(cached, RemoteModData.class);
+                    if (parsed != null) {
+                        System.out.println("[OfflineCache] Using cached mod_data.json");
+                        return parsed;
+                    }
+                }
+                throw unwrapCompletionException(throwable);
             });
+    }
+
+    private static CompletionException unwrapCompletionException(Throwable throwable) {
+        if (throwable instanceof CompletionException completion && completion.getCause() != null) {
+            return new CompletionException(completion.getCause());
+        }
+        return new CompletionException(throwable);
+    }
+
+    private static Path getModDataCachePath() {
+        return FabricLoader.getInstance()
+            .getConfigDir()
+            .resolve(OFFLINE_CACHE_DIR)
+            .resolve(MOD_DATA_CACHE_FILE);
+    }
+
+    private static void writeModDataCache(String content) {
+        try {
+            Path cachePath = getModDataCachePath();
+            Path parent = cachePath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.write(cachePath, content.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            System.err.println("Failed to write mod_data cache: " + e.getMessage());
+        }
+    }
+
+    private static String readModDataCache() {
+        try {
+            Path cachePath = getModDataCachePath();
+            if (!Files.exists(cachePath) || !Files.isRegularFile(cachePath)) {
+                return null;
+            }
+            return Files.readString(cachePath, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static void applyRemoteData(RemoteModData data) {
