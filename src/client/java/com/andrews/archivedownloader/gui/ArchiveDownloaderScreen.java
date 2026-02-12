@@ -668,15 +668,18 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         channelCounts.clear();
         channels = new ArrayList<>();
         currentPosts.clear();
+        currentSearchQuery = "";
+        currentTagFilter = "";
         currentPage = 1;
         totalPages = 1;
         totalItems = 0;
         noResultsFound = false;
         isLoading = false;
         isLoadingMore = false;
+        showSubmissionsView = false;
         submissionDataComplete = false;
-        if (!canUseSubmissionApi(target)) {
-            showSubmissionsView = false;
+        if (searchField != null) {
+            searchField.setValue("");
         }
 
         DownloadSettings.getInstance().setSelectedServer(target);
