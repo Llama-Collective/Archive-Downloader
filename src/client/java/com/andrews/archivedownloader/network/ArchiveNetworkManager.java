@@ -18,10 +18,13 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
+import net.fabricmc.loader.api.FabricLoader;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.net.URLEncoder;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -54,6 +57,7 @@ public class ArchiveNetworkManager {
 	);
 	private static final String RAW_BASE = "https://raw.githubusercontent.com";
 	private static final String MEDIA_BASE = "https://media.githubusercontent.com/media";
+	private static final String OFFLINE_CACHE_DIR = "archivedownloader/offlinecache";
 	public static final String USER_AGENT = "ArchiveDownloader/1.0 (+https://github.com/Llama-Collective/Archive-Downloader)";
 
 	private static final int TIMEOUT_SECONDS = 10;
@@ -814,13 +818,14 @@ public class ArchiveNetworkManager {
 	}
 
 	private static CompletableFuture<JsonObject> fetchApiJsonAsync(ServerEntry server, String url) {
+		ServerEntry targetServer = normalizeServer(server);
 		HttpRequest.Builder builder = HttpRequest.newBuilder()
 			.uri(URI.create(url))
 			.timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
 			.header("Accept", "application/json")
 			.header("User-Agent", USER_AGENT)
 			.GET();
-		applyApiAuthorization(builder, server, url);
+		applyApiAuthorization(builder, targetServer, url);
 
 		return HTTP_CLIENT.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString())
 			.thenApply(response -> {
@@ -839,7 +844,25 @@ public class ArchiveNetworkManager {
 					String error = parsed.has("error") ? parsed.get("error").getAsString() : "Unknown API error";
 					throw new CompletionException(new RuntimeException("API error: " + error));
 				}
-				return parsed;
+				return response.body();
+			})
+			.thenApply(body -> {
+				writeOfflineApiText(targetServer, url, body);
+				return GSON.fromJson(body, JsonObject.class);
+			})
+			.handle((parsed, throwable) -> {
+				if (throwable == null) {
+					return parsed;
+				}
+				String cached = readOfflineApiText(targetServer, url);
+				if (cached != null && !cached.isBlank()) {
+					JsonObject fallback = GSON.fromJson(cached, JsonObject.class);
+					if (fallback != null) {
+						System.out.println("[OfflineCache] Using cached API response for " + url);
+						return fallback;
+					}
+				}
+				throw unwrapCompletionException(throwable);
 			});
 	}
 
@@ -924,7 +947,7 @@ public class ArchiveNetworkManager {
 					continue;
 				}
 				imageUrls.add(imageUrl);
-				imageInfos.add(new ArchiveImageInfo(imageUrl, image.description, image.width, image.height));
+				imageInfos.add(new ArchiveImageInfo(imageUrl, image.description, image.width, image.height, image.hash));
 			}
 		}
 
@@ -1196,7 +1219,8 @@ public class ArchiveNetworkManager {
 						url,
 						image.description,
 						image.width,
-						image.height
+						image.height,
+						image.hash
 					));
 				}
 			}
@@ -1420,6 +1444,7 @@ public class ArchiveNetworkManager {
 
 	private static CompletableFuture<PersistentIndexData> fetchPersistentIndexAsync(ServerEntry server) {
 		String url = buildRawUrl(server, "persistent.idx");
+		ServerEntry targetServer = normalizeServer(server);
 		HttpRequest request = HttpRequest.newBuilder()
 			.uri(URI.create(url))
 			.timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
@@ -1437,7 +1462,25 @@ public class ArchiveNetworkManager {
 				if (body == null || body.length == 0) {
 					throw new CompletionException(new RuntimeException("Empty persistent index for " + url));
 				}
+				return body;
+			})
+			.thenApply(body -> {
+				writeOfflineRepoBytes(targetServer, "persistent.idx", body);
 				return PersistentIndexParser.parse(body);
+			})
+			.handle((parsed, throwable) -> {
+				if (throwable == null) {
+					return parsed;
+				}
+				byte[] cached = readOfflineRepoBytes(targetServer, "persistent.idx");
+				if (cached != null && cached.length > 0) {
+					try {
+						System.out.println("[OfflineCache] Using cached persistent index for " + targetServer.name());
+						return PersistentIndexParser.parse(cached);
+					} catch (Exception ignored) {
+					}
+				}
+				throw unwrapCompletionException(throwable);
 			});
 	}
 
@@ -1448,6 +1491,7 @@ public class ArchiveNetworkManager {
 
 	private static CompletableFuture<String> fetchJsonAsync(ServerEntry server, String path) {
 		String url = buildRawUrl(server, path);
+		ServerEntry targetServer = normalizeServer(server);
 		HttpRequest request = HttpRequest.newBuilder()
 			.uri(URI.create(url))
 			.header("Accept", "application/json")
@@ -1461,6 +1505,21 @@ public class ArchiveNetworkManager {
 					throw new CompletionException(new RuntimeException("HTTP error: " + response.statusCode() + " for " + url));
 				}
 				return response.body();
+			})
+			.thenApply(body -> {
+				writeOfflineRepoText(targetServer, path, body);
+				return body;
+			})
+			.handle((body, throwable) -> {
+				if (throwable == null) {
+					return body;
+				}
+				String cached = readOfflineRepoText(targetServer, path);
+				if (cached != null) {
+					System.out.println("[OfflineCache] Using cached JSON for " + path);
+					return cached;
+				}
+				throw unwrapCompletionException(throwable);
 			});
 	}
 
@@ -1527,6 +1586,144 @@ public class ArchiveNetworkManager {
 			return "";
 		}
 		return path.startsWith("/") ? path.substring(1) : path;
+	}
+
+	private static CompletionException unwrapCompletionException(Throwable throwable) {
+		if (throwable instanceof CompletionException completion && completion.getCause() != null) {
+			return new CompletionException(completion.getCause());
+		}
+		return new CompletionException(throwable);
+	}
+
+	private static Path getOfflineCacheRoot() {
+		return FabricLoader.getInstance().getConfigDir().resolve(OFFLINE_CACHE_DIR);
+	}
+
+	private static Path getOfflineCacheServerDir(ServerEntry server) {
+		return getOfflineCacheRoot().resolve(serverKey(server));
+	}
+
+	private static void writeOfflineRepoText(ServerEntry server, String repoPath, String content) {
+		if (content == null) {
+			return;
+		}
+		writeOfflineRepoBytes(server, repoPath, content.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static String readOfflineRepoText(ServerEntry server, String repoPath) {
+		byte[] bytes = readOfflineRepoBytes(server, repoPath);
+		if (bytes == null) {
+			return null;
+		}
+		return new String(bytes, StandardCharsets.UTF_8);
+	}
+
+	private static void writeOfflineApiText(ServerEntry server, String url, String content) {
+		if (content == null) {
+			return;
+		}
+		writeOfflineApiBytes(server, url, content.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static String readOfflineApiText(ServerEntry server, String url) {
+		byte[] bytes = readOfflineApiBytes(server, url);
+		if (bytes == null) {
+			return null;
+		}
+		return new String(bytes, StandardCharsets.UTF_8);
+	}
+
+	private static void writeOfflineRepoBytes(ServerEntry server, String repoPath, byte[] content) {
+		if (content == null) {
+			return;
+		}
+		try {
+			Path file = resolveOfflinePath(getOfflineCacheServerDir(server).resolve("repo"), normalizePath(repoPath));
+			Path parent = file.getParent();
+			if (parent != null) {
+				Files.createDirectories(parent);
+			}
+			Files.write(file, content);
+		} catch (Exception e) {
+			System.err.println("[OfflineCache] Failed to write cache: " + e.getMessage());
+		}
+	}
+
+	private static byte[] readOfflineRepoBytes(ServerEntry server, String repoPath) {
+		try {
+			Path file = resolveOfflinePath(getOfflineCacheServerDir(server).resolve("repo"), normalizePath(repoPath));
+			if (!Files.exists(file) || !Files.isRegularFile(file)) {
+				return null;
+			}
+			return Files.readAllBytes(file);
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private static void writeOfflineApiBytes(ServerEntry server, String url, byte[] content) {
+		if (content == null) {
+			return;
+		}
+		try {
+			Path relative = apiRelativePath(url);
+			Path file = resolveOfflinePath(getOfflineCacheServerDir(server).resolve("api"), relative.toString());
+			Path parent = file.getParent();
+			if (parent != null) {
+				Files.createDirectories(parent);
+			}
+			Files.write(file, content);
+		} catch (Exception e) {
+			System.err.println("[OfflineCache] Failed to write API cache: " + e.getMessage());
+		}
+	}
+
+	private static byte[] readOfflineApiBytes(ServerEntry server, String url) {
+		try {
+			Path relative = apiRelativePath(url);
+			Path file = resolveOfflinePath(getOfflineCacheServerDir(server).resolve("api"), relative.toString());
+			if (!Files.exists(file) || !Files.isRegularFile(file)) {
+				return null;
+			}
+			return Files.readAllBytes(file);
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private static Path apiRelativePath(String url) {
+		URI uri = URI.create(url);
+		String rawPath = normalizePath(uri.getPath());
+		if (rawPath.isBlank()) {
+			rawPath = "root";
+		}
+		if (rawPath.endsWith("/")) {
+			rawPath += "index";
+		}
+		String query = uri.getQuery();
+		if (query != null && !query.isBlank()) {
+			rawPath += "__q_" + sanitizePathComponent(query);
+		}
+		if (!rawPath.toLowerCase(Locale.ROOT).endsWith(".json")) {
+			rawPath += ".json";
+		}
+		return Path.of(rawPath);
+	}
+
+	private static String sanitizePathComponent(String value) {
+		if (value == null || value.isBlank()) {
+			return "empty";
+		}
+		String sanitized = value.replaceAll("[^a-zA-Z0-9._-]", "_");
+		return sanitized.length() > 120 ? sanitized.substring(0, 120) : sanitized;
+	}
+
+	private static Path resolveOfflinePath(Path baseDir, String relativePath) {
+		Path resolved = baseDir.resolve(relativePath).normalize();
+		if (!resolved.startsWith(baseDir.normalize())) {
+			throw new IllegalArgumentException("Invalid offline cache path");
+		}
+		return resolved;
 	}
 
 	private static List<String> mapIndicesToList(List<Integer> indices, List<String> values) {
@@ -1807,6 +2004,7 @@ public class ArchiveNetworkManager {
 		String url;
 		Integer width;
 		Integer height;
+		String hash;
 	}
 
 	private static class ApiAttachmentData {
@@ -1857,6 +2055,7 @@ public class ArchiveNetworkManager {
 		String path;
 		Integer width;
 		Integer height;
+		String hash;
 	}
 
 	private static class ArchiveAttachmentData {

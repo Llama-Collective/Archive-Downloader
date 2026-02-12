@@ -3,8 +3,10 @@ package com.andrews.archivedownloader.gui.widget;
 import com.andrews.archivedownloader.config.ServerDictionary;
 import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
 import com.andrews.archivedownloader.gui.theme.UITheme;
+import com.andrews.archivedownloader.models.ArchiveImageInfo;
 import com.andrews.archivedownloader.models.ArchivePostSummary;
 import com.andrews.archivedownloader.network.ArchiveNetworkManager;
+import com.andrews.archivedownloader.util.ImageCacheUtil;
 import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.util.TagUtil;
 import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
@@ -30,6 +32,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class PostGridWidget implements UiRenderable, UiEventListener {
+    private static final boolean DEBUG_IMAGE_LOADING = false;
     private static final int CARD_HEIGHT = 135;
     private static final int CARD_MIN_WIDTH = 120;
     private static final int CARD_MAX_WIDTH = 160;
@@ -404,61 +407,96 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
         if (noImagePosts.contains(post.id())) return;
         if (failedImagePosts.contains(post.id())) return;
         if (imageTextures.containsKey(post.id()) || imageLoading.containsKey(post.id())) return;
+        debug("start post=" + post.id());
 
         CompletableFuture<Void> future = ArchiveNetworkManager.getPostDetails(server, post)
             .thenApply(detail -> {
                 if (detail == null || detail.images().isEmpty()) {
                     noImagePosts.add(post.id());
+                    debug("no-image post=" + post.id());
                     return null;
                 }
-                return detail.images().get(0);
+                String url = detail.images().get(0);
+                String hash = null;
+                if (detail.imageInfos() != null) {
+                    for (ArchiveImageInfo info : detail.imageInfos()) {
+                        if (info != null && url.equals(info.url())) {
+                            hash = ImageCacheUtil.normalizeSha256(info.hash());
+                            break;
+                        }
+                    }
+                }
+                return new GridImageFetch(url, hash);
             })
-            .thenCompose(url -> {
-                if (url == null || url.isEmpty()) {
+            .thenCompose(fetch -> {
+                if (fetch == null || fetch.url() == null || fetch.url().isEmpty()) {
                     noImagePosts.add(post.id());
                     return CompletableFuture.completedFuture(null);
                 }
-                HttpRequest.Builder req = HttpRequest.newBuilder()
-                    .uri(URI.create(url.replace(" ", "%20")))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("User-Agent", ArchiveNetworkManager.USER_AGENT)
-                    .GET();
-                ArchiveNetworkManager.applyApiAuthorization(req, server, url);
-                return httpClient.sendAsync(req.build(), HttpResponse.BodyHandlers.ofByteArray())
-                    .thenApply(resp -> {
-                        if (resp.statusCode() != 200 || resp.body() == null || resp.body().length == 0) {
-                            throw new RuntimeException("Image request failed with status " + resp.statusCode());
+                return CompletableFuture
+                    .supplyAsync(() -> ImageCacheUtil.readCachedImageBytesByHash(server, fetch.url(), fetch.hash()))
+                    .thenCompose(cachedBytes -> {
+                        if (cachedBytes != null && cachedBytes.length > 0) {
+                            debug("disk-hit post=" + post.id() + " url=" + fetch.url());
+                            return CompletableFuture.completedFuture(cachedBytes);
                         }
-                        return resp.body();
+                        debug("network-fetch post=" + post.id() + " url=" + fetch.url());
+                        HttpRequest.Builder req = HttpRequest.newBuilder()
+                            .uri(URI.create(fetch.url().replace(" ", "%20")))
+                            .timeout(Duration.ofSeconds(15))
+                            .header("User-Agent", ArchiveNetworkManager.USER_AGENT)
+                            .GET();
+                        ArchiveNetworkManager.applyApiAuthorization(req, server, fetch.url());
+                        return httpClient.sendAsync(req.build(), HttpResponse.BodyHandlers.ofByteArray())
+                            .thenApply(resp -> {
+                                if (resp.statusCode() != 200 || resp.body() == null || resp.body().length == 0) {
+                                    throw new RuntimeException("Image request failed with status " + resp.statusCode());
+                                }
+                                ImageCacheUtil.writeCachedImageBytesByHash(server, fetch.url(), fetch.hash(), resp.body());
+                                debug("network-success post=" + post.id() + " bytes=" + resp.body().length);
+                                return resp.body();
+                            });
                     });
             })
-            .thenAccept(bytes -> {
+            .thenAcceptAsync(bytes -> {
                 if (bytes == null) {
                     noImagePosts.add(post.id());
+                    debug("no-bytes post=" + post.id());
                     return;
                 }
                 try {
                     NativeImage img = NativeImage.read(new ByteArrayInputStream(bytes));
                     if (img == null || img.getWidth() <= 0 || img.getHeight() <= 0) {
                         failedImagePosts.add(post.id());
+                        debug("invalid-image post=" + post.id());
                         return;
                     }
                     UiTextureId texId = client.registerDynamicTexture("grid", img);
                     imageTextures.put(post.id(), texId);
                     imageSizes.put(post.id(), new int[]{img.getWidth(), img.getHeight()});
+                    debug("texture-ready post=" + post.id() + " size=" + img.getWidth() + "x" + img.getHeight());
                 } catch (Exception e) {
                     failedImagePosts.add(post.id());
-                    System.err.println("Failed to load grid image: " + e.getMessage());
+                    System.err.println("[AD-IMG-GRID] decode-fail post=" + post.id() + " err=" + e.getMessage());
                 }
             })
             .exceptionally(ex -> {
                 failedImagePosts.add(post.id());
-                System.err.println("Image load failed for " + post.id() + ": " + ex.getMessage());
+                System.err.println("[AD-IMG-GRID] load-fail post=" + post.id() + " err=" + ex.getMessage());
                 return null;
             })
             .whenComplete((r, t) -> imageLoading.remove(post.id()));
 
         imageLoading.put(post.id(), future);
+    }
+
+    private record GridImageFetch(String url, String hash) {}
+
+    private void debug(String message) {
+        if (!DEBUG_IMAGE_LOADING) {
+            return;
+        }
+        System.out.println("[AD-IMG-GRID] " + message);
     }
 
     @Override

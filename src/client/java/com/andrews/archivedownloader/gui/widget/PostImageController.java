@@ -4,6 +4,7 @@ import com.andrews.archivedownloader.config.ServerDictionary;
 import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
 import com.andrews.archivedownloader.models.ArchiveImageInfo;
 import com.andrews.archivedownloader.network.ArchiveNetworkManager;
+import com.andrews.archivedownloader.util.ImageCacheUtil;
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
 import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
@@ -31,6 +32,7 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 
 public class PostImageController {
+    private static final boolean DEBUG_IMAGE_LOADING = false;
     private final UiMinecraftClient client;
     private final LoadingSpinner loadingSpinner;
     private ServerEntry server = ServerDictionary.getDefaultServer();
@@ -43,11 +45,15 @@ public class PostImageController {
     private int currentImageIndex = 0;
     private UiTextureId currentImageTexture;
     private final Map<String, UiTextureId> imageCache = new ConcurrentHashMap<>();
+    private final Map<String, String> imageHashByUrl = new ConcurrentHashMap<>();
+    private final Map<String, UiTextureId> imageHashCache = new ConcurrentHashMap<>();
+    private final Set<String> failedImageUrls = ConcurrentHashMap.newKeySet();
     private final Set<String> preloadingImages = ConcurrentHashMap.newKeySet();
     private String loadingImageUrl = null;
     private int originalImageWidth = 0;
     private int originalImageHeight = 0;
     private final Map<String, int[]> imageDimensionsCache = new ConcurrentHashMap<>();
+    private final Map<String, int[]> imageHashDimensionsCache = new ConcurrentHashMap<>();
 
     private ImageViewerWidget imageViewer;
 
@@ -68,12 +74,26 @@ public class PostImageController {
         loadingImageUrl = null;
         preloadingImages.clear();
         imageCache.clear();
+        imageHashByUrl.clear();
+        imageHashCache.clear();
+        failedImageUrls.clear();
         imageDimensionsCache.clear();
+        imageHashDimensionsCache.clear();
         imageViewer = null;
     }
 
     public void setImageInfos(List<ArchiveImageInfo> infos) {
         imageInfos = infos != null ? new ArrayList<>(infos) : new ArrayList<>();
+        imageHashByUrl.clear();
+        for (ArchiveImageInfo info : imageInfos) {
+            if (info == null || info.url() == null) {
+                continue;
+            }
+            String hash = ImageCacheUtil.normalizeSha256(info.hash());
+            if (hash != null) {
+                imageHashByUrl.put(info.url(), hash);
+            }
+        }
     }
 
     public void setServer(ServerEntry server) {
@@ -88,6 +108,7 @@ public class PostImageController {
         originalImageHeight = 0;
         loadingImageUrl = null;
         isLoadingImage = false;
+        failedImageUrls.clear();
         if (imageUrls.length > 0) {
             updateCurrentImageDescription(imageUrls[currentImageIndex]);
         } else {
@@ -236,8 +257,15 @@ public class PostImageController {
         if (imageUrl == null || imageUrl.isEmpty()) {
             return;
         }
+        if (isLoadingImage && imageUrl.equals(loadingImageUrl)) {
+            return;
+        }
+        if (failedImageUrls.contains(imageUrl)) {
+            return;
+        }
 
         if (imageCache.containsKey(imageUrl)) {
+            debug("memory-hit url=" + imageUrl);
             currentImageTexture = imageCache.get(imageUrl);
             int[] dims = imageDimensionsCache.get(imageUrl);
             if (dims != null) {
@@ -248,9 +276,26 @@ public class PostImageController {
             isLoadingImage = false;
             return;
         }
+        String imageHash = imageHashByUrl.get(imageUrl);
+        if (imageHash != null && imageHashCache.containsKey(imageHash)) {
+            debug("hash-memory-hit url=" + imageUrl + " hash=" + imageHash);
+            UiTextureId cachedTexture = imageHashCache.get(imageHash);
+            currentImageTexture = cachedTexture;
+            imageCache.put(imageUrl, cachedTexture);
+            int[] dims = imageHashDimensionsCache.get(imageHash);
+            if (dims != null) {
+                imageDimensionsCache.put(imageUrl, dims);
+                originalImageWidth = dims[0];
+                originalImageHeight = dims[1];
+            }
+            updateCurrentImageDescription(imageUrl);
+            isLoadingImage = false;
+            return;
+        }
 
         isLoadingImage = true;
         loadingImageUrl = imageUrl;
+        debug("load-start url=" + imageUrl + " hash=" + (imageHash != null ? imageHash : "none"));
 
         loadImageAsync(imageUrl).thenAccept(texId -> {
             client.execute(() -> {
@@ -263,12 +308,16 @@ public class PostImageController {
                     }
                     updateCurrentImageDescription(imageUrl);
                     isLoadingImage = false;
+                    loadingImageUrl = null;
+                    debug("load-success url=" + imageUrl);
                 }
             });
         }).exceptionally(ex -> {
             client.execute(() -> {
                 isLoadingImage = false;
-                System.err.println("Failed to load image: " + ex.getMessage());
+                loadingImageUrl = null;
+                failedImageUrls.add(imageUrl);
+                System.err.println("[AD-IMG-DETAIL] load-fail url=" + imageUrl + " err=" + ex.getMessage());
             });
             return null;
         });
@@ -302,8 +351,23 @@ public class PostImageController {
         if (imageCache.containsKey(imageUrl)) {
             return CompletableFuture.completedFuture(imageCache.get(imageUrl));
         }
+        String expectedHash = imageHashByUrl.get(imageUrl);
+        debug("disk-check-start url=" + imageUrl + " hash=" + (expectedHash != null ? expectedHash : "none"));
+        return CompletableFuture
+                .supplyAsync(() -> ImageCacheUtil.readCachedImageBytesByHash(server, imageUrl, expectedHash))
+                .thenCompose(cachedBytes -> {
+                    if (cachedBytes != null && cachedBytes.length > 0) {
+                        debug("disk-hit url=" + imageUrl + " hash=" + (expectedHash != null ? expectedHash : "none"));
+                        return CompletableFuture.completedFuture(createTextureFromBytes(imageUrl, expectedHash, cachedBytes, true));
+                    }
+                    debug("disk-miss url=" + imageUrl);
+                    return fetchImageFromNetwork(imageUrl, expectedHash);
+                });
+    }
 
+    private CompletableFuture<UiTextureId> fetchImageFromNetwork(String imageUrl, String expectedHash) {
         String encodedUrl = encodeImageUrl(imageUrl);
+        debug("network-fetch url=" + encodedUrl + " hash=" + (expectedHash != null ? expectedHash : "none"));
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -320,35 +384,50 @@ public class PostImageController {
                     if (response.statusCode() != 200) {
                         throw new CompletionException(new RuntimeException("HTTP error: " + response.statusCode()));
                     }
-
-                    byte[] imageData = response.body();
-                    byte[] pngBytes;
-                    try {
-                        pngBytes = convertImageToPng(imageData);
-                    } catch (Exception e) {
-                        throw new CompletionException(e);
-                    }
-
-                    NativeImage nativeImage;
-                    try {
-                        nativeImage = NativeImage.read(new ByteArrayInputStream(pngBytes));
-                    } catch (Exception e) {
-                        throw new CompletionException(e);
-                    }
-
-                    int imgWidth = nativeImage.getWidth();
-                    int imgHeight = nativeImage.getHeight();
-                    if (imgWidth <= 0 || imgHeight <= 0 || imgWidth > 4096 || imgHeight > 4096) {
-                        nativeImage.close();
-                        throw new CompletionException(new RuntimeException("Invalid image dimensions"));
-                    }
-
-                    imageDimensionsCache.put(imageUrl, new int[] { imgWidth, imgHeight });
-
-                    UiTextureId texId = client.registerDynamicTexture("post", nativeImage);
-                    imageCache.put(imageUrl, texId);
-                    return texId;
+                    return createTextureFromBytes(imageUrl, expectedHash, response.body(), false);
                 });
+    }
+
+    private UiTextureId createTextureFromBytes(String imageUrl, String expectedHash, byte[] imageData, boolean fromDisk) {
+        String actualHash = ImageCacheUtil.computeSha256(imageData);
+        boolean hashMatches = expectedHash == null || expectedHash.equals(actualHash);
+        if (!hashMatches) {
+            debug("hash-mismatch url=" + imageUrl + " expected=" + expectedHash + " actual=" + actualHash);
+        }
+        byte[] pngBytes;
+        try {
+            pngBytes = convertImageToPng(imageData);
+        } catch (Exception e) {
+            throw new CompletionException(e);
+        }
+
+        NativeImage nativeImage;
+        try {
+            nativeImage = NativeImage.read(new ByteArrayInputStream(pngBytes));
+        } catch (Exception e) {
+            throw new CompletionException(e);
+        }
+
+        int imgWidth = nativeImage.getWidth();
+        int imgHeight = nativeImage.getHeight();
+        if (imgWidth <= 0 || imgHeight <= 0 || imgWidth > 4096 || imgHeight > 4096) {
+            nativeImage.close();
+            throw new CompletionException(new RuntimeException("Invalid image dimensions"));
+        }
+
+        imageDimensionsCache.put(imageUrl, new int[] { imgWidth, imgHeight });
+
+        UiTextureId texId = client.registerDynamicTexture("post", nativeImage);
+        imageCache.put(imageUrl, texId);
+        if (hashMatches && expectedHash != null) {
+            imageHashCache.put(expectedHash, texId);
+            imageHashDimensionsCache.put(expectedHash, new int[] { imgWidth, imgHeight });
+            if (!fromDisk) {
+                ImageCacheUtil.writeCachedImageBytesByHash(server, imageUrl, expectedHash, imageData);
+                debug("disk-write url=" + imageUrl + " hash=" + expectedHash);
+            }
+        }
+        return texId;
     }
 
     private void updateCurrentImageDescription(String imageUrl) {
@@ -418,5 +497,12 @@ public class PostImageController {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ImageIO.write(bufferedImage, "PNG", baos);
         return baos.toByteArray();
+    }
+
+    private void debug(String message) {
+        if (!DEBUG_IMAGE_LOADING) {
+            return;
+        }
+        System.out.println("[AD-IMG-DETAIL] " + message);
     }
 }

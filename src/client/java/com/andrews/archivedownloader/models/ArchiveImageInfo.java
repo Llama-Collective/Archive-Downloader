@@ -4,6 +4,7 @@ public record ArchiveImageInfo(
     String url,
     String description,
     Integer width,
-    Integer height
+    Integer height,
+    String hash
 ) {
 }

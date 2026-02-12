@@ -11,10 +11,12 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class DownloadSettings {
 	private static final String CONFIG_FILE = "archive-downloader-settings.json";
+	private static final String CONFIG_SUBDIR = "archivedownloader";
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final String KEY_JOINED_DISCORD_SERVERS = "joinedDiscordServers";
 	private static final String KEY_SERVER_API_TOKENS = "serverApiTokens";
@@ -36,6 +38,18 @@ public class DownloadSettings {
 
 	private JsonObject loadConfig() {
 		File configFile = getConfigFile();
+		File legacyConfigFile = getLegacyConfigFile();
+		if (!configFile.exists() && legacyConfigFile.exists()) {
+			try {
+				File parentDir = configFile.getParentFile();
+				if (parentDir != null && !parentDir.exists()) {
+					parentDir.mkdirs();
+				}
+				Files.move(legacyConfigFile.toPath(), configFile.toPath());
+			} catch (IOException e) {
+				System.err.println("Failed to migrate legacy settings: " + e.getMessage());
+			}
+		}
 		if (!configFile.exists()) {
 			return new JsonObject();
 		}
@@ -260,6 +274,11 @@ public class DownloadSettings {
 	}
 
 	private File getConfigFile() {
+		Path configDir = FabricLoader.getInstance().getConfigDir();
+		return configDir.resolve(CONFIG_SUBDIR).resolve(CONFIG_FILE).toFile();
+	}
+
+	private File getLegacyConfigFile() {
 		Path configDir = FabricLoader.getInstance().getConfigDir();
 		return configDir.resolve(CONFIG_FILE).toFile();
 	}
