@@ -6,6 +6,7 @@ package com.andrews.archivedownloader.util;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
+
 import net.fabricmc.loader.api.FabricLoader;
 
 public final class LitematicaAutoLoader {
@@ -71,5 +72,25 @@ public final class LitematicaAutoLoader {
 	private static String stripExtension(String name) {
 		int dotIndex = name.lastIndexOf('.');
 		return dotIndex > 0 ? name.substring(0, dotIndex) : name;
+	}
+
+	public static Path getLitematicaSchematicBaseDirectory() {
+		if (!isAvailable()) {
+			return null;
+		}
+		try {
+			//? >=1.21.5 {
+			return fi.dy.masa.litematica.data.DataManager.getSchematicsBaseDirectory();
+			//? } else {
+			/*File dir = fi.dy.masa.litematica.data.DataManager.getSchematicsBaseDirectory();
+			return dir != null ? dir.toPath() : null;
+			*///? }
+		} catch (NoClassDefFoundError e) {
+			return null;
+		} catch (Exception e) {
+			System.err.println("Failed to get Litematica schematics directory: " + e.getMessage());
+			e.printStackTrace();
+			return null;
+		}
 	}
 }

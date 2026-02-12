@@ -47,6 +47,10 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private static final String DISCORD_INVITE_URL = "https://discord.gg/hztJMTsx2m";
     private static final String SUBMISSIONS_URL = "https://discord.com/channels/1375556143186837695/1375575317007040654";
     private static boolean updatePopupShownThisSession = false;
+    private static String sessionSearchQuery = "";
+    private static String sessionSelectedChannelPath = null;
+    private static boolean sessionShowSubmissionsView = false;
+    private static final Map<String, TagState> sessionTagStates = new HashMap<>();
     private ServerEntry selectedServer = DownloadSettings.getInstance().getSelectedServer();
 
     private CustomTextField searchField;
@@ -98,6 +102,10 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
     public ArchiveDownloaderScreen() {
         super(UiText.of("Litematic Downloader"));
+        currentSearchQuery = sessionSearchQuery;
+        selectedChannelPath = sessionSelectedChannelPath;
+        showSubmissionsView = sessionShowSubmissionsView;
+        tagStates.putAll(sessionTagStates);
     }
 
     @Override
@@ -106,7 +114,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
         hoveredServer = null;
         showServerDropdown = false;
-        String previousSearchText = (searchField != null) ? searchField.getValue() : "";
+        String previousSearchText = (searchField != null) ? searchField.getValue() : currentSearchQuery;
         if (!canShowSubmissionsToggle()) {
             showSubmissionsView = false;
             submissionDataComplete = false;
@@ -241,10 +249,12 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                 });
                 channelPanel.setOnHoverChanged(channel -> hoveredChannel = channel);
                 channelPanel.setChannels(channels);
+                channelPanel.setSelectedChannelPath(selectedChannelPath);
                 channelPanel.setChannelCounts(channelCounts);
             } else {
                 channelPanel.setDimensions(PADDING, PADDING * 2 + SEARCH_BAR_HEIGHT, SIDEBAR_WIDTH - PADDING,
                         channelHeight);
+                channelPanel.setSelectedChannelPath(selectedChannelPath);
                 channelPanel.setChannelCounts(channelCounts);
             }
 
@@ -725,6 +735,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                     }
                     if (channelPanel != null) {
                         channelPanel.setChannels(channels);
+                        channelPanel.setSelectedChannelPath(selectedChannelPath);
                         channelPanel.setChannelCounts(channelCounts);
                     }
                 });
@@ -751,6 +762,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                             }
                             if (channelPanel != null) {
                                 channelPanel.setChannels(channels);
+                                channelPanel.setSelectedChannelPath(selectedChannelPath);
                                 channelPanel.setChannelCounts(channelCounts);
                             }
                         });
@@ -1104,11 +1116,20 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
     @Override
     public void onClose() {
+        persistSessionUiState();
         clearUpdatePopup();
         clearDiscordPopup();
         clearApiTokenPopup();
         ArchiveNetworkManager.clearCache();
         super.onClose();
+    }
+
+    private void persistSessionUiState() {
+        sessionSearchQuery = searchField != null ? searchField.getValue().trim() : currentSearchQuery;
+        sessionSelectedChannelPath = selectedChannelPath;
+        sessionShowSubmissionsView = showSubmissionsView;
+        sessionTagStates.clear();
+        sessionTagStates.putAll(tagStates);
     }
 
     private void renderChannelDescription(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {

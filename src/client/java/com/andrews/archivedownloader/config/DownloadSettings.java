@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
+import com.andrews.archivedownloader.util.LitematicaAutoLoader;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.File;
@@ -76,6 +77,10 @@ public class DownloadSettings {
 	}
 
 	public String getDownloadPath() {
+		Path litematicaBasePath = LitematicaAutoLoader.getLitematicaSchematicBaseDirectory();
+		if (litematicaBasePath != null && litematicaBasePath.toFile().exists()) {
+			return litematicaBasePath.toString();
+		}
 		return config.get("downloadPath").getAsString();
 	}
 

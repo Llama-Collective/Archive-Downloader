@@ -92,6 +92,15 @@ public class ChannelFilterPanel implements UiRenderable, UiEventListener {
         return selectedPath;
     }
 
+    public void setSelectedChannelPath(String path) {
+        if (path == null || path.isBlank()) {
+            selectedPath = null;
+            return;
+        }
+        boolean exists = channels.stream().anyMatch(channel -> channel != null && path.equals(channel.path()));
+        selectedPath = exists ? path : null;
+    }
+
     public void clearSelection() {
         selectedPath = null;
         if (onSelectionChanged != null) {
