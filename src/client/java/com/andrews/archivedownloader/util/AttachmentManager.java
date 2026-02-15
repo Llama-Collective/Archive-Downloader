@@ -120,6 +120,19 @@ public class AttachmentManager {
                 parts.add("Error: " + info.error());
             return parts.isEmpty() ? "Litematic" : "Litematic • " + String.join(" • ", parts);
         }
+
+        if (attachment.schematic() != null) {
+            ArchiveAttachment.SchematicInfo info = attachment.schematic();
+            List<String> parts = new ArrayList<>();
+            if (info.version() != null && !info.version().isEmpty())
+                parts.add("Version " + info.version());
+            if (info.size() != null && !info.size().isEmpty())
+                parts.add(info.size());
+            if (info.error() != null && !info.error().isEmpty())
+                parts.add("Error: " + info.error());
+            return parts.isEmpty() ? "Schematic" : "Schematic • " + String.join(" • ", parts);
+        }
+
         if (attachment.wdl() != null) {
             ArchiveAttachment.WdlInfo info = attachment.wdl();
             List<String> parts = new ArrayList<>();
@@ -508,7 +521,9 @@ public class AttachmentManager {
             return false;
         }
         String fileName = savedPath.getFileName().toString().toLowerCase(Locale.ROOT);
-        return LitematicaAutoLoader.isAvailable() && fileName.endsWith(".litematic");
+
+        boolean isSchematic = fileName.endsWith(".litematic") || fileName.endsWith(".schematic") || fileName.endsWith(".schem") || fileName.endsWith(".nbt");
+        return LitematicaAutoLoader.isAvailable() && isSchematic;
     }
 
     private String buildDownloadStatus(SaveResult result, String fileName, boolean attemptedAutoLoad,
@@ -552,9 +567,6 @@ public class AttachmentManager {
                 }
 
                 String baseName = attachment != null && attachment.name() != null ? attachment.name() : "download";
-                if (!baseName.contains(".")) {
-                    baseName += ".litematic";
-                }
 
                 Path existingIdentical = findIdenticalFile(baseTargetDir, baseName, data);
                 if (existingIdentical != null) {

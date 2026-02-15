@@ -981,6 +981,11 @@ public class ArchiveNetworkManager {
 						attachment.litematic.size,
 						attachment.litematic.error
 					) : null,
+					attachment.schematic != null ? new ArchiveAttachment.SchematicInfo(
+						attachment.schematic.version,
+						attachment.schematic.size,
+						attachment.schematic.error
+					) : null,
 					attachment.wdl != null ? new ArchiveAttachment.WdlInfo(
 						attachment.wdl.version,
 						attachment.wdl.error
@@ -1252,6 +1257,11 @@ public class ArchiveNetworkManager {
 						attachment.litematic.version,
 						attachment.litematic.size,
 						attachment.litematic.error
+					) : null,
+					attachment.schematic != null ? new ArchiveAttachment.SchematicInfo(
+						attachment.schematic.version,
+						attachment.schematic.size,
+						attachment.schematic.error
 					) : null,
 					attachment.wdl != null ? new ArchiveAttachment.WdlInfo(
 						attachment.wdl.version,
@@ -2016,6 +2026,7 @@ public class ArchiveNetworkManager {
 		String contentType;
 		String hash;
 		ArchiveLitematicInfo litematic;
+		ArchiveSchematicInfo schematic;
 		ArchiveWdlInfo wdl;
 		ArchiveYoutubeInfo youtube;
 		Boolean canDownload;
@@ -2068,6 +2079,7 @@ public class ArchiveNetworkManager {
 		String contentType;
 		String hash;
 		ArchiveLitematicInfo litematic;
+		ArchiveSchematicInfo schematic;
 		ArchiveWdlInfo wdl;
 		ArchiveYoutubeInfo youtube;
 		Boolean canDownload;
@@ -2075,6 +2087,12 @@ public class ArchiveNetworkManager {
 	}
 
 	private static class ArchiveLitematicInfo {
+		String version;
+		String size;
+		String error;
+	}
+
+	private static class ArchiveSchematicInfo {
 		String version;
 		String size;
 		String error;

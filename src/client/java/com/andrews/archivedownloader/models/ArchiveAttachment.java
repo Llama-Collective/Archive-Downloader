@@ -9,6 +9,7 @@ public record ArchiveAttachment(
 	String description,
 	String hash,
 	LitematicInfo litematic,
+	SchematicInfo schematic,
 	WdlInfo wdl,
 	YoutubeInfo youtube
 ) {
@@ -17,6 +18,8 @@ public record ArchiveAttachment(
 	}
 
 	public record LitematicInfo(String version, String size, String error) {}
+
+	public record SchematicInfo(String version, String size, String error) {}
 
 	public record WdlInfo(String version, String error) {}
 
