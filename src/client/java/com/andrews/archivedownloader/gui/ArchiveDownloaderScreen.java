@@ -5,11 +5,9 @@ import net.fabricmc.loader.api.FabricLoader;
 
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 import com.andrews.archivedownloader.config.DownloadSettings;
 import com.andrews.archivedownloader.config.ServerDictionary;
@@ -754,10 +752,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                     UiMinecraftClient client = uiClientOrNull();
                     if (client != null) {
                         client.execute(() -> {
-                            channels = list != null ? list.stream()
-                                    .sorted(Comparator.comparing(ArchiveChannel::category)
-                                            .thenComparing(ArchiveChannel::name))
-                                    .collect(Collectors.toList()) : new ArrayList<>();
+                            channels = list != null ? new ArrayList<>(list) : new ArrayList<>();
                             for (ArchiveChannel channel : channels) {
                                 if (channel != null && channel.path() != null) {
                                     channelCounts.putIfAbsent(channel.path(), channel.entryCount());

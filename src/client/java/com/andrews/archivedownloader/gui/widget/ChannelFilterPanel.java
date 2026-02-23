@@ -11,6 +11,7 @@ import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -32,7 +33,7 @@ public class ChannelFilterPanel implements UiRenderable, UiEventListener {
     private String selectedPath = null;
     private Consumer<String> onSelectionChanged;
     private Consumer<ArchiveChannel> onHoverChanged;
-    private final Map<String, List<ArchiveChannel>> channelsByCategory = new HashMap<>();
+    private final Map<String, List<ArchiveChannel>> channelsByCategory = new LinkedHashMap<>();
     private final Map<String, Integer> channelCounts = new HashMap<>();
 
     public ChannelFilterPanel(int x, int y, int width, int height) {
