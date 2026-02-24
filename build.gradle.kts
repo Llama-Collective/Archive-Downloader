@@ -38,8 +38,19 @@ dependencies {
 
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("deps.fabric_api")}")
 
-    modImplementation(fletchingTable.modrinth("litematica", stonecutter.current.version))
-    modImplementation(fletchingTable.modrinth("malilib", stonecutter.current.version))
+    var mcVersion = stonecutter.current.version.toString()
+
+    modImplementation(fletchingTable.modrinth("litematica", mcVersion))
+    modImplementation(fletchingTable.modrinth("malilib", mcVersion))
+    
+    if (mcVersion == "1.21.2") {
+        // No 1.21.2 version of worldedit
+    } else {
+        modImplementation(fletchingTable.modrinth("worldedit", mcVersion))
+    }
+
+    implementation("org.commonmark:commonmark:0.27.1")
+    include("org.commonmark:commonmark:0.27.1")
 }
 
 loom {

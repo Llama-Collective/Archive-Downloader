@@ -6,13 +6,18 @@ import com.andrews.archivedownloader.config.DownloadSettings;
 import com.andrews.archivedownloader.models.ArchiveConfigJson;
 import com.andrews.archivedownloader.models.ArchiveAttachment;
 import com.andrews.archivedownloader.models.ArchiveChannel;
+import com.andrews.archivedownloader.models.ArchiveDictionaryEntry;
+import com.andrews.archivedownloader.models.ArchiveDictionaryReferencedPost;
+import com.andrews.archivedownloader.models.ArchiveDictionaryReference;
 import com.andrews.archivedownloader.models.ArchiveImageInfo;
 import com.andrews.archivedownloader.models.ArchivePostDetail;
 import com.andrews.archivedownloader.models.ArchivePostSummary;
+import com.andrews.archivedownloader.models.ArchiveReference;
 import com.andrews.archivedownloader.models.ArchiveRecordSection;
 import com.andrews.archivedownloader.models.ArchiveSearchResult;
 import com.andrews.archivedownloader.models.DiscordPostReference;
 import com.andrews.archivedownloader.models.GlobalTag;
+import com.andrews.archivedownloader.util.ReferenceUtils;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -20,8 +25,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import net.fabricmc.loader.api.FabricLoader;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,14 +33,18 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -72,6 +79,10 @@ public class ArchiveNetworkManager {
 	private static final Map<String, List<GlobalTag>> CACHED_GLOBAL_TAGS = new ConcurrentHashMap<>();
 	private static final Map<String, CompletableFuture<List<GlobalTag>>> GLOBAL_TAG_FUTURES = new ConcurrentHashMap<>();
 	private static final Map<String, List<ArchivePostSummary>> CACHED_SUBMISSION_SUMMARIES = new ConcurrentHashMap<>();
+	private static final Map<String, Map<String, String>> CACHED_DICTIONARY_SUMMARIES = new ConcurrentHashMap<>();
+	private static final Map<String, CompletableFuture<Map<String, String>>> DICTIONARY_SUMMARY_FUTURES = new ConcurrentHashMap<>();
+	private static final Map<String, ArchiveDictionaryEntry> CACHED_DICTIONARY_ENTRIES = new ConcurrentHashMap<>();
+	private static final Map<String, CompletableFuture<ArchiveDictionaryEntry>> DICTIONARY_ENTRY_FUTURES = new ConcurrentHashMap<>();
 	private static final List<GlobalTag> DEFAULT_GLOBAL_TAGS = List.of(
 		new GlobalTag("Untested", "\u2049", "#fcd34d", 0xFF8C6E00L, null),
 		new GlobalTag("Broken", "\uD83D\uDC94", "#ff6969", 0xFF8B1A1AL, null),
@@ -345,14 +356,34 @@ public class ArchiveNetworkManager {
 		}
 		if (isApiSubmissionSummary(summary)) {
 			return fetchSubmissionDetail(targetServer, summary.id())
-				.thenApply(data -> toSubmissionPostDetail(targetServer, summary, data));
+				.thenCompose(data -> getDictionarySummariesSafe(targetServer)
+					.thenApply(summaries -> toSubmissionPostDetail(targetServer, summary, data, summaries)));
 		}
-		return fetchEntryDataAsync(targetServer, summary.channelPath(), summary.entryPath())
-			.thenApply(data -> toPostDetail(targetServer, summary, data));
+		return fetchEntryDataAsync(targetServer, summary.channelPath(), summary.entryPath(), summary.updatedAt())
+			.thenCompose(data -> getDictionarySummariesSafe(targetServer)
+				.thenApply(summaries -> toPostDetail(targetServer, summary, data, summaries)));
 	}
 
 	public static CompletableFuture<ArchivePostDetail> getPostDetails(ArchivePostSummary summary) {
 		return getPostDetails(ServerDictionary.getDefaultServer(), summary);
+	}
+
+	public static CompletableFuture<ArchivePostSummary> findPostSummary(ServerEntry server, String postId, String postSlug) {
+		ServerEntry targetServer = normalizeServer(server);
+		String normalizedId = safeTrim(postId);
+		String normalizedSlug = safeTrim(postSlug).toLowerCase(Locale.ROOT);
+		if (normalizedId.isEmpty() && normalizedSlug.isEmpty()) {
+			return CompletableFuture.completedFuture(null);
+		}
+
+		return ensureIndexLoaded(targetServer).thenApply(index -> {
+			ArchivePostSummary fromIndex = findPostSummaryInList(index.posts(), normalizedId, normalizedSlug);
+			if (fromIndex != null) {
+				return fromIndex;
+			}
+			List<ArchivePostSummary> submissionSummaries = CACHED_SUBMISSION_SUMMARIES.get(serverKey(targetServer));
+			return findPostSummaryInList(submissionSummaries, normalizedId, normalizedSlug);
+		});
 	}
 
 	public static CompletableFuture<List<ArchiveChannel>> getChannels(ServerEntry server) {
@@ -382,12 +413,44 @@ public class ArchiveNetworkManager {
 		return DEFAULT_GLOBAL_TAGS;
 	}
 
+	public static CompletableFuture<ArchiveDictionaryEntry> getDictionaryEntry(ServerEntry server, String dictionaryId) {
+		ServerEntry targetServer = normalizeServer(server);
+		String normalizedId = safeTrim(dictionaryId);
+		if (normalizedId.isEmpty()) {
+			return CompletableFuture.failedFuture(new RuntimeException("Dictionary id is required"));
+		}
+		String key = dictionaryEntryKey(targetServer, normalizedId);
+		ArchiveDictionaryEntry cached = CACHED_DICTIONARY_ENTRIES.get(key);
+		if (cached != null) {
+			return CompletableFuture.completedFuture(cached);
+		}
+
+		return DICTIONARY_ENTRY_FUTURES.computeIfAbsent(key, k ->
+			fetchDictionaryEntryDataAsync(targetServer, normalizedId)
+				.thenCompose(data -> getDictionarySummariesSafe(targetServer)
+					.thenCombine(
+						getPostSummariesByCodeSafe(targetServer),
+						(summaries, postSummariesByCode) -> toDictionaryEntry(targetServer, normalizedId, data, summaries, postSummariesByCode)
+					))
+				.whenComplete((entry, throwable) -> {
+					DICTIONARY_ENTRY_FUTURES.remove(k);
+					if (throwable == null && entry != null) {
+						CACHED_DICTIONARY_ENTRIES.put(k, entry);
+					}
+				})
+		);
+	}
+
 	public static void clearCache(ServerEntry server) {
 		String key = serverKey(normalizeServer(server));
 		CACHED_INDEXES.remove(key);
 		INDEX_FUTURES.remove(key);
 		CACHED_SCHEMA_STYLES.remove(key);
 		CACHED_SUBMISSION_SUMMARIES.remove(key);
+		CACHED_DICTIONARY_SUMMARIES.remove(key);
+		DICTIONARY_SUMMARY_FUTURES.remove(key);
+		CACHED_DICTIONARY_ENTRIES.keySet().removeIf(k -> k.startsWith(key + "::"));
+		DICTIONARY_ENTRY_FUTURES.keySet().removeIf(k -> k.startsWith(key + "::"));
 	}
 
 	public static void clearCache() {
@@ -395,6 +458,10 @@ public class ArchiveNetworkManager {
 		INDEX_FUTURES.clear();
 		CACHED_SCHEMA_STYLES.clear();
 		CACHED_SUBMISSION_SUMMARIES.clear();
+		CACHED_DICTIONARY_SUMMARIES.clear();
+		DICTIONARY_SUMMARY_FUTURES.clear();
+		CACHED_DICTIONARY_ENTRIES.clear();
+		DICTIONARY_ENTRY_FUTURES.clear();
 	}
 
 	private static CompletableFuture<List<GlobalTag>> loadGlobalTagsAsync(ServerEntry server) {
@@ -413,9 +480,153 @@ public class ArchiveNetworkManager {
 			});
 	}
 
+	private static ArchivePostSummary findPostSummaryInList(
+		List<ArchivePostSummary> posts,
+		String normalizedId,
+		String normalizedSlug
+	) {
+		if (posts == null || posts.isEmpty()) {
+			return null;
+		}
+		for (ArchivePostSummary post : posts) {
+			if (post == null) {
+				continue;
+			}
+			if (!normalizedId.isEmpty() && normalizedId.equalsIgnoreCase(safeTrim(post.id()))) {
+				return post;
+			}
+			if (normalizedSlug.isEmpty()) {
+				continue;
+			}
+			String postCode = safeTrim(post.code());
+			if (!postCode.isEmpty() && normalizedSlug.equals(postCode.toLowerCase(Locale.ROOT))) {
+				return post;
+			}
+			String postSlug = buildEntrySlugFromSummary(post);
+			if (!postSlug.isEmpty() && normalizedSlug.equals(postSlug.toLowerCase(Locale.ROOT))) {
+				return post;
+			}
+		}
+		return null;
+	}
+
+	private static String buildEntrySlugFromSummary(ArchivePostSummary post) {
+		if (post == null) {
+			return "";
+		}
+		String code = safeTrim(post.code());
+		String titleSlug = slugifyName(post.title());
+		if (titleSlug.isEmpty()) {
+			return code;
+		}
+		if (code.isEmpty()) {
+			return titleSlug;
+		}
+		return code + "-" + titleSlug;
+	}
+
+	private static String slugifyName(String input) {
+		if (input == null || input.isBlank()) {
+			return "";
+		}
+		String normalized = Normalizer.normalize(input, Normalizer.Form.NFKD);
+		String withoutDiacritics = normalized.replaceAll("\\p{M}", "");
+		String replaced = withoutDiacritics.replaceAll("[^a-zA-Z0-9]+", "-");
+		return replaced.replaceAll("^-+|-+$", "");
+	}
+
 	private static CompletableFuture<ArchiveConfigJson> fetchArchiveConfigAsync(ServerEntry server) {
 		return fetchJsonAsync(server, "config.json")
 			.thenApply(json -> GSON.fromJson(json, ArchiveConfigJson.class));
+	}
+
+	private static CompletableFuture<Map<String, String>> getDictionarySummariesSafe(ServerEntry server) {
+		return ensureDictionarySummariesLoaded(server).exceptionally(throwable -> {
+			System.err.println("Failed to load dictionary summaries for " + serverKey(server) + ": " + throwable.getMessage());
+			return Map.of();
+		});
+	}
+
+	private static CompletableFuture<Map<String, ArchivePostSummary>> getPostSummariesByCodeSafe(ServerEntry server) {
+		return ensureIndexLoaded(server)
+			.thenApply(index -> buildPostSummaryLookupByCode(index.posts()))
+			.exceptionally(throwable -> {
+				System.err.println("Failed to load post summaries for dictionary referencedBy on " + serverKey(server) + ": " + throwable.getMessage());
+				return Map.of();
+			});
+	}
+
+	private static Map<String, ArchivePostSummary> buildPostSummaryLookupByCode(List<ArchivePostSummary> posts) {
+		if (posts == null || posts.isEmpty()) {
+			return Map.of();
+		}
+		Map<String, ArchivePostSummary> byCode = new LinkedHashMap<>();
+		for (ArchivePostSummary post : posts) {
+			if (post == null) {
+				continue;
+			}
+			String code = safeTrim(post.code());
+			if (code.isEmpty()) {
+				continue;
+			}
+			byCode.putIfAbsent(code.toLowerCase(Locale.ROOT), post);
+		}
+		return Map.copyOf(byCode);
+	}
+
+	private static CompletableFuture<Map<String, String>> ensureDictionarySummariesLoaded(ServerEntry server) {
+		ServerEntry targetServer = normalizeServer(server);
+		String key = serverKey(targetServer);
+		Map<String, String> cached = CACHED_DICTIONARY_SUMMARIES.get(key);
+		if (cached != null) {
+			return CompletableFuture.completedFuture(cached);
+		}
+		return DICTIONARY_SUMMARY_FUTURES.computeIfAbsent(key, ignored ->
+			fetchDictionaryConfigAsync(targetServer)
+				.thenApply(ArchiveNetworkManager::extractDictionarySummaries)
+				.whenComplete((summaries, throwable) -> {
+					DICTIONARY_SUMMARY_FUTURES.remove(key);
+					if (throwable == null && summaries != null) {
+						CACHED_DICTIONARY_SUMMARIES.put(key, summaries);
+					}
+				})
+		);
+	}
+
+	private static CompletableFuture<DictionaryConfigData> fetchDictionaryConfigAsync(ServerEntry server) {
+		return fetchJsonAsync(server, "dictionary/config.json")
+			.thenApply(json -> GSON.fromJson(json, DictionaryConfigData.class));
+	}
+
+	private static CompletableFuture<DictionaryEntryData> fetchDictionaryEntryDataAsync(ServerEntry server, String dictionaryId) {
+		String normalizedId = safeTrim(dictionaryId);
+		if (normalizedId.isEmpty()) {
+			return CompletableFuture.failedFuture(new RuntimeException("Dictionary id is required"));
+		}
+		return fetchJsonAsync(server, "dictionary/entries/" + encodePathSegment(normalizedId) + ".json")
+			.thenApply(json -> GSON.fromJson(json, DictionaryEntryData.class));
+	}
+
+	private static Map<String, String> extractDictionarySummaries(DictionaryConfigData config) {
+		if (config == null || config.entries == null || config.entries.isEmpty()) {
+			return Map.of();
+		}
+		Map<String, String> result = new LinkedHashMap<>();
+		for (DictionaryIndexData entry : config.entries) {
+			if (entry == null) {
+				continue;
+			}
+			String id = safeTrim(entry.id);
+			if (id.isEmpty()) {
+				continue;
+			}
+			result.put(id, safeTrim(entry.summary));
+		}
+		return Map.copyOf(result);
+	}
+
+	private static String dictionaryEntryKey(ServerEntry server, String dictionaryId) {
+		return serverKey(server) + "::" + safeTrim(dictionaryId).toLowerCase(Locale.ROOT);
 	}
 
 	private static List<GlobalTag> extractGlobalTags(ArchiveConfigJson config) {
@@ -431,7 +642,7 @@ public class ArchiveNetworkManager {
 
 		return fetchPersistentIndexAsync(targetServer)
 			.thenApply(index -> {
-				Map<String, StyleInfo> styles = index.schemaStyles() != null ? index.schemaStyles() : Map.of();
+				Map<String, StyleInfo> styles = parseSchemaStyles(index.schemaStylesBytes());
 				CACHED_SCHEMA_STYLES.put(key, styles);
 				return buildCacheFromPersistentIndex(index);
 			})
@@ -504,6 +715,15 @@ public class ArchiveNetworkManager {
 		}
 
 		return new ArchiveIndexCache(posts, channels);
+	}
+
+	private static Map<String, StyleInfo> parseSchemaStyles(byte[] stylesBytes) {
+		if (stylesBytes == null || stylesBytes.length == 0) {
+			return Map.of();
+		}
+		String json = new String(stylesBytes, StandardCharsets.UTF_8);
+		Map<String, StyleInfo> styles = GSON.fromJson(json, new TypeToken<Map<String, StyleInfo>>() {}.getType());
+		return styles != null ? styles : Map.of();
 	}
 
 	private static CompletableFuture<ArchiveIndexCache> ensureIndexLoaded(ServerEntry server) {
@@ -857,10 +1077,9 @@ public class ArchiveNetworkManager {
 				String cached = readOfflineApiText(targetServer, url);
 				if (cached != null && !cached.isBlank()) {
 					JsonObject fallback = GSON.fromJson(cached, JsonObject.class);
-					if (fallback != null) {
-						System.out.println("[OfflineCache] Using cached API response for " + url);
-						return fallback;
-					}
+						if (fallback != null) {
+							return fallback;
+						}
 				}
 				throw unwrapCompletionException(throwable);
 			});
@@ -901,7 +1120,12 @@ public class ArchiveNetworkManager {
 		);
 	}
 
-	private static ArchivePostDetail toSubmissionPostDetail(ServerEntry server, ArchivePostSummary summary, ApiSubmissionDetailsData data) {
+	private static ArchivePostDetail toSubmissionPostDetail(
+		ServerEntry server,
+		ArchivePostSummary summary,
+		ApiSubmissionDetailsData data,
+		Map<String, String> dictionarySummaries
+	) {
 		String detailId = !safeTrim(data.id).isEmpty() ? safeTrim(data.id) : safeTrim(summary.id());
 		long createdAt = data.timestamp != null && data.timestamp.createdMs != null
 			? data.timestamp.createdMs
@@ -1000,6 +1224,14 @@ public class ArchiveNetworkManager {
 			? data.revision.styles
 			: Map.of();
 		List<ArchiveRecordSection> recordSections = toRecordSections(records, Map.of(), recordStyles);
+		List<ArchiveReference> references = data.revision != null && data.revision.references != null
+			? data.revision.references
+			: (data.references != null ? data.references : List.of());
+		String recordMarkdown = ReferenceUtils.transformOutputWithReferencesForWebsiteStyle(
+			postToMarkdown(records, recordStyles, Map.of()),
+			references,
+			id -> dictionarySummaries != null ? dictionarySummaries.get(id) : null
+		);
 
 		DiscordPostReference discordPost = null;
 		if (!safeTrim(data.threadUrl).isEmpty() || !safeTrim(data.threadId).isEmpty()) {
@@ -1021,6 +1253,7 @@ public class ArchiveNetworkManager {
 			attachments,
 			discordPost,
 			recordSections,
+			recordMarkdown,
 			createdAt,
 			updatedAt
 		);
@@ -1190,7 +1423,12 @@ public class ArchiveNetworkManager {
 		return value != null ? value.trim() : "";
 	}
 
-	private static ArchivePostDetail toPostDetail(ServerEntry server, ArchivePostSummary summary, ArchiveEntryData data) {
+	private static ArchivePostDetail toPostDetail(
+		ServerEntry server,
+		ArchivePostSummary summary,
+		ArchiveEntryData data,
+		Map<String, String> dictionarySummaries
+	) {
 		List<String> authors = new ArrayList<>();
 		if (data.authors != null) {
 			for (ArchiveAuthor author : data.authors) {
@@ -1217,7 +1455,7 @@ public class ArchiveNetworkManager {
 		List<ArchiveImageInfo> imageInfos = new ArrayList<>();
 		if (data.images != null) {
 			for (ArchiveImageData image : data.images) {
-				String url = resolveImagePath(server, image.path, summary.channelPath(), summary.entryPath());
+				String url = buildPostImageUrl(server, image, summary.channelPath(), summary.entryPath());
 				if (url != null && !url.isEmpty()) {
 					images.add(url);
 					imageInfos.add(new ArchiveImageInfo(
@@ -1277,6 +1515,15 @@ public class ArchiveNetworkManager {
 			getSchemaStyles(server),
 			data.styles != null ? data.styles : Map.of()
 		);
+		String recordMarkdown = ReferenceUtils.transformOutputWithReferencesForWebsiteStyle(
+			postToMarkdown(
+				data.records,
+				data.styles != null ? data.styles : Map.of(),
+				getSchemaStyles(server)
+			),
+			data.references != null ? data.references : List.of(),
+			id -> dictionarySummaries != null ? dictionarySummaries.get(id) : null
+		);
 
 		long archivedAt = data.archivedAt != null ? data.archivedAt : summary.archivedAt();
 		long updatedAt = data.updatedAt != null ? data.updatedAt : summary.updatedAt();
@@ -1290,9 +1537,29 @@ public class ArchiveNetworkManager {
 			attachments,
 			discordPost,
 			recordSections,
+			recordMarkdown,
 			archivedAt,
 			updatedAt
 		);
+	}
+
+	private static String buildPostImageUrl(
+		ServerEntry server,
+		ArchiveImageData image,
+		String channelPath,
+		String entryPath
+	) {
+		if (image == null) {
+			return "";
+		}
+		String fromPath = resolveImagePath(server, image.path, channelPath, entryPath);
+		if (!safeTrim(fromPath).isEmpty()) {
+			return fromPath;
+		}
+		if (!safeTrim(image.url).isEmpty()) {
+			return image.url;
+		}
+		return "";
 	}
 
 	private static DiscordPostReference toDiscordPostReference(ArchiveDiscordPostReference post) {
@@ -1308,6 +1575,164 @@ public class ArchiveNetworkManager {
 			post.attachmentMessageId,
 			post.uploadMessageId
 		);
+	}
+
+	private static ArchiveDictionaryEntry toDictionaryEntry(
+		ServerEntry server,
+		String requestedId,
+		DictionaryEntryData data,
+		Map<String, String> dictionarySummaries,
+		Map<String, ArchivePostSummary> postSummariesByCode
+	) {
+		String safeId = safeTrim(data != null && data.id != null ? data.id : requestedId);
+		if (safeId.isEmpty()) {
+			throw new CompletionException(new RuntimeException("Dictionary entry id is missing"));
+		}
+		List<String> terms = data != null && data.terms != null ? data.terms : List.of();
+		List<ArchiveReference> references = data != null && data.references != null ? data.references : List.of();
+		String definition = data != null && data.definition != null ? data.definition : "";
+		String definitionMarkdown = ReferenceUtils.transformOutputWithReferencesForWebsiteStyle(
+			definition,
+			references,
+			id -> dictionarySummaries != null ? dictionarySummaries.get(id) : null
+		);
+		List<ArchiveDictionaryReference> renderedReferences = toDictionaryReferenceList(references);
+		List<String> referencedBy = data != null && data.referencedBy != null ? data.referencedBy : List.of();
+		List<ArchiveDictionaryReferencedPost> referencedByPosts = toDictionaryReferencedByPosts(referencedBy, postSummariesByCode);
+		long updatedAt = data != null && data.updatedAt != null ? data.updatedAt : 0L;
+		String summary = dictionarySummaries != null ? safeTrim(dictionarySummaries.get(safeId)) : "";
+
+		return new ArchiveDictionaryEntry(
+			safeId,
+			terms,
+			summary,
+			definitionMarkdown,
+			renderedReferences,
+			referencedBy,
+			referencedByPosts,
+			data != null ? data.threadURL : "",
+			data != null ? data.statusURL : "",
+			updatedAt
+		);
+	}
+
+	private static List<ArchiveDictionaryReference> toDictionaryReferenceList(List<ArchiveReference> references) {
+		if (references == null || references.isEmpty()) {
+			return List.of();
+		}
+		List<ArchiveDictionaryReference> items = new ArrayList<>();
+		Set<String> seen = new LinkedHashSet<>();
+		for (ArchiveReference reference : references) {
+			if (reference == null) {
+				continue;
+			}
+			String label = ReferenceUtils.buildReferenceLabel(reference);
+			String url = ReferenceUtils.buildReferenceUrl(reference, null);
+			String key = safeTrim(reference.type()) + "|" + safeTrim(label) + "|" + safeTrim(url);
+			if (key.isBlank() || !seen.add(key)) {
+				continue;
+			}
+			items.add(new ArchiveDictionaryReference(safeTrim(reference.type()), label, url));
+		}
+		return items;
+	}
+
+	private static List<ArchiveDictionaryReferencedPost> toDictionaryReferencedByPosts(
+		List<String> referencedByCodes,
+		Map<String, ArchivePostSummary> postSummariesByCode
+	) {
+		if (referencedByCodes == null || referencedByCodes.isEmpty()) {
+			return List.of();
+		}
+		List<ArchiveDictionaryReferencedPost> posts = new ArrayList<>();
+		Set<String> seen = new LinkedHashSet<>();
+		for (String rawCode : referencedByCodes) {
+			String code = safeTrim(rawCode);
+			if (code.isEmpty()) {
+				continue;
+			}
+			String key = code.toLowerCase(Locale.ROOT);
+			if (!seen.add(key)) {
+				continue;
+			}
+			ArchivePostSummary summary = postSummariesByCode != null ? postSummariesByCode.get(key) : null;
+			if (summary == null) {
+				posts.add(new ArchiveDictionaryReferencedPost(
+					"",
+					code,
+					code,
+					"",
+					"",
+					"",
+					0L,
+					0L
+				));
+				continue;
+			}
+			posts.add(new ArchiveDictionaryReferencedPost(
+				safeTrim(summary.id()),
+				safeTrim(summary.title()),
+				code,
+				safeTrim(summary.channelCode()),
+				safeTrim(summary.channelName()),
+				safeTrim(summary.channelPath()),
+				summary.updatedAt(),
+				summary.archivedAt()
+			));
+		}
+		return List.copyOf(posts);
+	}
+
+	private static String postToMarkdown(JsonObject records, Map<String, StyleInfo> recordStyles, Map<String, StyleInfo> schemaStyles) {
+		if (records == null || records.entrySet().isEmpty()) {
+			return "";
+		}
+
+		StringBuilder markdown = new StringBuilder();
+		boolean isFirst = true;
+		Set<String> parentsRecorded = new HashSet<>();
+
+		for (Map.Entry<String, JsonElement> entry : records.entrySet()) {
+			String key = entry.getKey();
+			String[] keyParts = key.split(":");
+			for (int i = keyParts.length - 1; i > 0; i--) {
+				String parentKey = String.join(":", Arrays.copyOfRange(keyParts, 0, i));
+				if (!parentsRecorded.contains(parentKey)) {
+					StyleInfo parentStyle = getEffectiveStyle(parentKey, schemaStyles, recordStyles);
+					String headerText = safeTrim(parentStyle.headerText);
+					if (!headerText.isEmpty()) {
+						markdown.append("\n")
+							.append("#".repeat(Math.max(1, parentStyle.depth != null ? parentStyle.depth : 1)))
+							.append(" ")
+							.append(headerText)
+							.append("\n");
+					}
+					parentsRecorded.add(parentKey);
+				} else {
+					break;
+				}
+			}
+
+			parentsRecorded.add(key);
+			StyleInfo style = getEffectiveStyle(key, schemaStyles, recordStyles);
+			String text = submissionRecordToMarkdown(entry.getValue(), style);
+			if (!text.isEmpty()) {
+				if (!"description".equals(key) || !isFirst) {
+					String headerText = safeTrim(style.headerText);
+					if (!headerText.isEmpty()) {
+						markdown.append("\n")
+							.append("#".repeat(Math.max(1, style.depth != null ? style.depth : 1)))
+							.append(" ")
+							.append(headerText)
+							.append("\n");
+					}
+				}
+				isFirst = false;
+			}
+			markdown.append(text);
+		}
+
+		return markdown.toString().trim();
 	}
 
 	private static List<ArchiveRecordSection> toRecordSections(JsonObject records, Map<String, StyleInfo> schemaStyles, Map<String, StyleInfo> recordStyles) {
@@ -1397,12 +1822,12 @@ public class ArchiveNetworkManager {
 				boolean ordered = style.isOrdered != null && style.isOrdered;
 				String prefix = ordered ? (i + 1) + ". " : "- ";
 				if (item.isJsonPrimitive()) {
-					markdown.append(prefix).append(stripUrls(item.getAsString())).append("\n");
+					markdown.append(prefix).append(item.getAsString()).append("\n");
 				} else if (item.isJsonObject()) {
 					JsonObject obj = item.getAsJsonObject();
 					markdown.append(prefix);
 					if (obj.has("title")) {
-						markdown.append(stripUrls(obj.get("title").getAsString())).append("\n");
+						markdown.append(obj.get("title").getAsString()).append("\n");
 					}
 					if (obj.has("items")) {
 						markdown.append(nestedListToMarkdown(obj, ordered ? 2 : 1));
@@ -1414,12 +1839,12 @@ public class ArchiveNetworkManager {
 			if (obj.has("items")) {
 				markdown.append(nestedListToMarkdown(obj, 0));
 			} else {
-				markdown.append(stripUrls(obj.toString()));
+				markdown.append(obj.toString());
 			}
 		} else {
-			markdown.append(stripUrls(value.getAsString()));
+			markdown.append(value.getAsString());
 		}
-		return stripUrls(markdown.toString().trim());
+		return markdown.toString().trim();
 	}
 
 	private static String nestedListToMarkdown(JsonObject nestedList, int indentLevel) {
@@ -1432,24 +1857,18 @@ public class ArchiveNetworkManager {
 			JsonElement item = items.get(i);
 			String prefix = isOrdered ? (indent + (i + 1) + ". ") : (indent + "- ");
 			if (item.isJsonPrimitive()) {
-				markdown.append(prefix).append(stripUrls(item.getAsString())).append("\n");
+				markdown.append(prefix).append(item.getAsString()).append("\n");
 			} else if (item.isJsonObject()) {
 				JsonObject child = item.getAsJsonObject();
 				if (child.has("title")) {
-					markdown.append(prefix).append(stripUrls(child.get("title").getAsString())).append("\n");
+					markdown.append(prefix).append(child.get("title").getAsString()).append("\n");
 				}
 				if (child.has("items")) {
 					markdown.append(nestedListToMarkdown(child, indentLevel + (isOrdered ? 2 : 1)));
 				}
 			}
 		}
-		return stripUrls(markdown.toString());
-	}
-
-	private static String stripUrls(String text) {
-		if (text == null || text.isEmpty()) return "";
-		String withoutMarkdownLinks = text.replaceAll("\\[([^\\]]+)\\]\\(https?://[^\\s)]+\\)", "$1 (link removed)");
-		return withoutMarkdownLinks.replaceAll("https?://\\S+", "(link removed)");
+		return markdown.toString();
 	}
 
 	private static CompletableFuture<PersistentIndexData> fetchPersistentIndexAsync(ServerEntry server) {
@@ -1482,21 +1901,41 @@ public class ArchiveNetworkManager {
 				if (throwable == null) {
 					return parsed;
 				}
-				byte[] cached = readOfflineRepoBytes(targetServer, "persistent.idx");
-				if (cached != null && cached.length > 0) {
-					try {
-						System.out.println("[OfflineCache] Using cached persistent index for " + targetServer.name());
-						return PersistentIndexParser.parse(cached);
-					} catch (Exception ignored) {
+					byte[] cached = readOfflineRepoBytes(targetServer, "persistent.idx");
+					if (cached != null && cached.length > 0) {
+						try {
+							return PersistentIndexParser.parse(cached);
+						} catch (Exception ignored) {
+						}
 					}
-				}
-				throw unwrapCompletionException(throwable);
-			});
+					throw unwrapCompletionException(throwable);
+				});
+		}
+
+	private static CompletableFuture<ArchiveEntryData> fetchEntryDataAsync(ServerEntry server, String channelPath, String entryPath, long expectedUpdatedAt) {
+		String path = normalizePath(channelPath) + "/" + normalizePath(entryPath) + "/data.json";
+		ServerEntry targetServer = normalizeServer(server);
+		if (expectedUpdatedAt > 0) {
+			String cached = readOfflineRepoText(targetServer, path);
+			ArchiveEntryData cachedData = tryParseArchiveEntryData(cached);
+			if (cachedData != null
+				&& cachedData.updatedAt != null
+				&& cachedData.updatedAt == expectedUpdatedAt) {
+				return CompletableFuture.completedFuture(cachedData);
+			}
+		}
+		return fetchJsonAsync(server, path).thenApply(json -> GSON.fromJson(json, ArchiveEntryData.class));
 	}
 
-	private static CompletableFuture<ArchiveEntryData> fetchEntryDataAsync(ServerEntry server, String channelPath, String entryPath) {
-		String path = normalizePath(channelPath) + "/" + normalizePath(entryPath) + "/data.json";
-		return fetchJsonAsync(server, path).thenApply(json -> GSON.fromJson(json, ArchiveEntryData.class));
+	private static ArchiveEntryData tryParseArchiveEntryData(String json) {
+		if (json == null || json.isBlank()) {
+			return null;
+		}
+		try {
+			return GSON.fromJson(json, ArchiveEntryData.class);
+		} catch (Exception ignored) {
+			return null;
+		}
 	}
 
 	private static CompletableFuture<String> fetchJsonAsync(ServerEntry server, String path) {
@@ -1524,11 +1963,10 @@ public class ArchiveNetworkManager {
 				if (throwable == null) {
 					return body;
 				}
-				String cached = readOfflineRepoText(targetServer, path);
-				if (cached != null) {
-					System.out.println("[OfflineCache] Using cached JSON for " + path);
-					return cached;
-				}
+					String cached = readOfflineRepoText(targetServer, path);
+					if (cached != null) {
+						return cached;
+					}
 				throw unwrapCompletionException(throwable);
 			});
 	}
@@ -1537,8 +1975,16 @@ public class ArchiveNetworkManager {
 		if (path == null || path.isEmpty()) {
 			return null;
 		}
+		String trimmed = path.trim();
+		String lower = trimmed.toLowerCase(Locale.ROOT);
+		if (lower.startsWith("https://") || lower.startsWith("http://")) {
+			return trimmed;
+		}
 		String basePath = normalizePath(channelPath) + "/" + normalizePath(entryPath);
-		return buildRawUrl(server, basePath + "/" + path);
+		String relPath = normalizePath(basePath + "/" + trimmed);
+		String extension = extensionFromName(trimmed);
+		boolean shouldUseLfs = ServerDictionary.getLfsExtensions().contains(extension);
+		return shouldUseLfs ? buildMediaUrl(server, relPath) : buildRawUrl(server, relPath);
 	}
 
 	private static String resolveAttachmentPath(ServerEntry server, String path, String channelPath, String entryPath) {
@@ -1775,176 +2221,6 @@ public class ArchiveNetworkManager {
 	private record ArchiveIndexCache(List<ArchivePostSummary> posts, List<ArchiveChannel> channels) {
 	}
 
-	private static class PersistentIndexParser {
-		private static final int SUPPORTED_VERSION = 1;
-
-		static PersistentIndexData parse(byte[] buffer) {
-			ByteBuffer data = ByteBuffer.wrap(buffer);
-			data.order(ByteOrder.BIG_ENDIAN);
-
-			int version = Short.toUnsignedInt(data.getShort());
-			if (version != SUPPORTED_VERSION) {
-				throw new CompletionException(new IllegalArgumentException("Unsupported persistent index version: " + version));
-			}
-			long updatedAt = data.getLong();
-
-			data.order(ByteOrder.LITTLE_ENDIAN);
-			List<String> allTags = readStringList(data);
-			List<String> allAuthors = readStringList(data);
-			List<String> allCategories = readStringList(data);
-
-			int schemaStylesLength = data.getInt();
-			if (schemaStylesLength < 0) {
-				long unsigned = Integer.toUnsignedLong(schemaStylesLength);
-				throw new CompletionException(new IllegalArgumentException("Invalid schema styles length: " + unsigned));
-			}
-			byte[] stylesBytes = new byte[schemaStylesLength];
-			data.get(stylesBytes);
-			Map<String, StyleInfo> schemaStyles = parseStyles(stylesBytes);
-
-			List<PersistentChannel> channels = new ArrayList<>();
-			while (data.hasRemaining()) {
-				channels.add(readChannel(data));
-			}
-
-			return new PersistentIndexData(updatedAt, allTags, allAuthors, allCategories, schemaStyles, channels);
-		}
-
-		private static List<String> readStringList(ByteBuffer buffer) {
-			int count = Short.toUnsignedInt(buffer.getShort());
-			List<String> values = new ArrayList<>(count);
-			for (int i = 0; i < count; i++) {
-				values.add(readString(buffer));
-			}
-			return values;
-		}
-
-		private static PersistentChannel readChannel(ByteBuffer buffer) {
-			String code = readString(buffer);
-			String name = readString(buffer);
-			String description = readString(buffer);
-			int category = Short.toUnsignedInt(buffer.getShort());
-
-			int tagCount = Short.toUnsignedInt(buffer.getShort());
-			List<Integer> tags = new ArrayList<>(tagCount);
-			for (int i = 0; i < tagCount; i++) {
-				tags.add(Short.toUnsignedInt(buffer.getShort()));
-			}
-
-			String path = readString(buffer);
-
-			long entriesCountUnsigned = Integer.toUnsignedLong(buffer.getInt());
-			if (entriesCountUnsigned > Integer.MAX_VALUE) {
-				throw new CompletionException(new IllegalArgumentException("Channel entries exceed max int: " + entriesCountUnsigned));
-			}
-			int entriesCount = (int) entriesCountUnsigned;
-
-			List<PersistentEntry> entries = new ArrayList<>(entriesCount);
-			for (int i = 0; i < entriesCount; i++) {
-				entries.add(readEntry(buffer));
-			}
-
-			return new PersistentChannel(code, name, description, category, tags, path, entries);
-		}
-
-		private static PersistentEntry readEntry(ByteBuffer buffer) {
-			String id = readString(buffer);
-			List<String> codes = parseCodes(readString(buffer));
-			String name = readString(buffer);
-
-			int authorCount = Short.toUnsignedInt(buffer.getShort());
-			List<Integer> authors = new ArrayList<>(authorCount);
-			for (int i = 0; i < authorCount; i++) {
-				authors.add(Short.toUnsignedInt(buffer.getShort()));
-			}
-
-			int tagCount = Short.toUnsignedInt(buffer.getShort());
-			List<Integer> tags = new ArrayList<>(tagCount);
-			for (int i = 0; i < tagCount; i++) {
-				tags.add(Short.toUnsignedInt(buffer.getShort()));
-			}
-
-			buffer.order(ByteOrder.BIG_ENDIAN);
-			long updatedAt = buffer.getLong();
-			long archivedAt = buffer.getLong();
-			buffer.order(ByteOrder.LITTLE_ENDIAN);
-
-			String path = readString(buffer);
-
-			int mainImageLength = Short.toUnsignedInt(buffer.getShort());
-			String mainImagePath = null;
-			if (mainImageLength > 0) {
-				byte[] bytes = new byte[mainImageLength];
-				buffer.get(bytes);
-				mainImagePath = new String(bytes, StandardCharsets.UTF_8);
-			}
-
-			return new PersistentEntry(id, codes, name, authors, tags, updatedAt, archivedAt, path, mainImagePath);
-		}
-
-		private static String readString(ByteBuffer buffer) {
-			int length = Short.toUnsignedInt(buffer.getShort());
-			if (length == 0) {
-				return "";
-			}
-			byte[] bytes = new byte[length];
-			buffer.get(bytes);
-			return new String(bytes, StandardCharsets.UTF_8);
-		}
-
-		private static List<String> parseCodes(String codesString) {
-			if (codesString == null || codesString.isBlank()) {
-				return List.of();
-			}
-			return Arrays.stream(codesString.split(","))
-				.map(String::trim)
-				.filter(s -> !s.isEmpty())
-				.toList();
-		}
-
-		private static Map<String, StyleInfo> parseStyles(byte[] stylesBytes) {
-			if (stylesBytes == null || stylesBytes.length == 0) {
-				return Map.of();
-			}
-			String json = new String(stylesBytes, StandardCharsets.UTF_8);
-			return GSON.fromJson(json, new TypeToken<Map<String, StyleInfo>>() {}.getType());
-		}
-	}
-
-	private record PersistentIndexData(
-		long updatedAt,
-		List<String> allTags,
-		List<String> allAuthors,
-		List<String> allCategories,
-		Map<String, StyleInfo> schemaStyles,
-		List<PersistentChannel> channels
-	) {
-	}
-
-	private record PersistentChannel(
-		String code,
-		String name,
-		String description,
-		int category,
-		List<Integer> tags,
-		String path,
-		List<PersistentEntry> entries
-	) {
-	}
-
-	private record PersistentEntry(
-		String id,
-		List<String> codes,
-		String name,
-		List<Integer> authors,
-		List<Integer> tags,
-		long updatedAt,
-		long archivedAt,
-		String path,
-		String mainImagePath
-	) {
-	}
-
 	private record SubmissionPage(
 		List<ArchivePostSummary> posts,
 		int page,
@@ -1981,6 +2257,7 @@ public class ArchiveNetworkManager {
 		Long timestamp;
 		JsonObject records;
 		Map<String, StyleInfo> styles;
+		List<ArchiveReference> references;
 	}
 
 	private static class ApiSubmissionDetailsData {
@@ -1995,6 +2272,7 @@ public class ArchiveNetworkManager {
 		List<ApiAttachmentData> attachments;
 		ApiSubmissionRevisionData revision;
 		ApiSubmissionTimestampData timestamp;
+		List<ArchiveReference> references;
 	}
 
 	private static class ApiTagData {
@@ -2049,8 +2327,35 @@ public class ArchiveNetworkManager {
 		ArchiveDiscordPostReference post;
 		JsonObject records;
 		Map<String, StyleInfo> styles;
+		List<ArchiveReference> references;
+		@SuppressWarnings("unused")
+		List<ArchiveReference> author_references;
 		Long archivedAt;
 		Long updatedAt;
+	}
+
+	private static class DictionaryConfigData {
+		List<DictionaryIndexData> entries;
+	}
+
+	private static class DictionaryIndexData {
+		String id;
+		List<String> terms;
+		String summary;
+		Long updatedAt;
+	}
+
+	private static class DictionaryEntryData {
+		String id;
+		List<String> terms;
+		String definition;
+		String threadURL;
+		String statusURL;
+		@SuppressWarnings("unused")
+		String statusMessageID;
+		Long updatedAt;
+		List<ArchiveReference> references;
+		List<String> referencedBy;
 	}
 
 	private static class ArchiveImageData {

@@ -136,6 +136,14 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
         this.blocked = blocked;
     }
 
+    public double getScrollOffset() {
+        return scrollOffset;
+    }
+
+    public void setScrollOffset(double scrollOffset) {
+        this.scrollOffset = Math.max(0, scrollOffset);
+    }
+
     public void setServer(ServerEntry server) {
         this.server = server != null ? server : ServerDictionary.getDefaultServer();
     }

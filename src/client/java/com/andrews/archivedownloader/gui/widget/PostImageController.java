@@ -36,6 +36,10 @@ public class PostImageController {
     private final UiMinecraftClient client;
     private final LoadingSpinner loadingSpinner;
     private ServerEntry server = ServerDictionary.getDefaultServer();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
 
     private List<ArchiveImageInfo> imageInfos = new ArrayList<>();
     private String currentImageDescription = "";
@@ -366,17 +370,13 @@ public class PostImageController {
     }
 
     private CompletableFuture<UiTextureId> fetchImageFromNetwork(String imageUrl, String expectedHash) {
-        String encodedUrl = encodeImageUrl(imageUrl);
-        debug("network-fetch url=" + encodedUrl + " hash=" + (expectedHash != null ? expectedHash : "none"));
-        HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-
+        String requestUrl = imageUrl.replace(" ", "%20");
+        debug("network-fetch url=" + requestUrl + " hash=" + (expectedHash != null ? expectedHash : "none"));
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(encodedUrl))
+                .uri(URI.create(requestUrl))
                 .GET()
                 .header("User-Agent", ArchiveNetworkManager.USER_AGENT);
-        ArchiveNetworkManager.applyApiAuthorization(builder, server, encodedUrl);
+        ArchiveNetworkManager.applyApiAuthorization(builder, server, imageUrl);
         HttpRequest request = builder.build();
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
@@ -394,23 +394,22 @@ public class PostImageController {
         if (!hashMatches) {
             debug("hash-mismatch url=" + imageUrl + " expected=" + expectedHash + " actual=" + actualHash);
         }
-        byte[] pngBytes;
-        try {
-            pngBytes = convertImageToPng(imageData);
-        } catch (Exception e) {
-            throw new CompletionException(e);
-        }
-
         NativeImage nativeImage;
         try {
-            nativeImage = NativeImage.read(new ByteArrayInputStream(pngBytes));
+            nativeImage = NativeImage.read(new ByteArrayInputStream(imageData));
         } catch (Exception e) {
-            throw new CompletionException(e);
+            byte[] pngBytes;
+            try {
+                pngBytes = convertImageToPng(imageData);
+                nativeImage = NativeImage.read(new ByteArrayInputStream(pngBytes));
+            } catch (Exception conversionError) {
+                throw new CompletionException(conversionError);
+            }
         }
 
         int imgWidth = nativeImage.getWidth();
         int imgHeight = nativeImage.getHeight();
-        if (imgWidth <= 0 || imgHeight <= 0 || imgWidth > 4096 || imgHeight > 4096) {
+        if (imgWidth <= 0 || imgHeight <= 0) {
             nativeImage.close();
             throw new CompletionException(new RuntimeException("Invalid image dimensions"));
         }
@@ -440,20 +439,6 @@ public class PostImageController {
                 currentImageDescription = info.description() != null ? info.description() : "";
                 break;
             }
-        }
-    }
-
-    private String encodeImageUrl(String url) {
-        try {
-            URI uri = URI.create(url);
-            String path = uri.getPath();
-            String encodedPath = path.replace(" ", "%20");
-            return uri.getScheme() + "://" + uri.getHost()
-                    + (uri.getPort() != -1 ? ":" + uri.getPort() : "")
-                    + encodedPath
-                    + (uri.getQuery() != null ? "?" + uri.getQuery() : "");
-        } catch (Exception e) {
-            return url.replace(" ", "%20");
         }
     }
 

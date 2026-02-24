@@ -10,6 +10,7 @@ public record ArchivePostDetail(
 	List<ArchiveAttachment> attachments,
 	DiscordPostReference discordPost,
 	List<ArchiveRecordSection> recordSections,
+	String recordMarkdown,
 	long archivedAt,
 	long updatedAt
 ) {
@@ -19,5 +20,6 @@ public record ArchivePostDetail(
 		imageInfos = imageInfos != null ? imageInfos : List.of();
 		attachments = attachments != null ? attachments : List.of();
 		recordSections = recordSections != null ? recordSections : List.of();
+		recordMarkdown = recordMarkdown != null ? recordMarkdown : "";
 	}
 }

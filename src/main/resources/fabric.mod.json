@@ -27,6 +27,12 @@
 		"minecraft": "${minecraft}",
 		"fabric-api": "*"
 	},
+	"recommends": {
+		"litematica": "*"
+	},
+	"suggests": {
+		"worldedit": "*"
+	},
 	"mixins": [
 		"archive-downloader.mixins.json",
 		"archive-downloader.client.mixins.json"

@@ -50,6 +50,8 @@ public class AttachmentManager {
     private List<ArchiveAttachment> availableFiles = new ArrayList<>();
     private String downloadStatus = "";
     private ServerEntry server = ServerDictionary.getDefaultServer();
+    private Runnable onLitematicaLoadSuccess = () -> {
+    };
 
     public AttachmentManager(UiMinecraftClient client) {
         this.client = client;
@@ -68,6 +70,11 @@ public class AttachmentManager {
         this.server = server != null ? server : ServerDictionary.getDefaultServer();
     }
 
+    public void setOnLitematicaLoadSuccess(Runnable callback) {
+        this.onLitematicaLoadSuccess = callback != null ? callback : () -> {
+        };
+    }
+
     public List<ArchiveAttachment> getAvailableFiles() {
         return availableFiles;
     }
@@ -81,6 +88,10 @@ public class AttachmentManager {
     }
 
     public void handleAttachmentClick(ArchiveAttachment attachment) {
+        handleAttachmentClick(attachment, false);
+    }
+
+    public void handleAttachmentClick(ArchiveAttachment attachment, boolean preferWorldEdit) {
         if (attachment == null) {
             return;
         }
@@ -90,7 +101,7 @@ public class AttachmentManager {
         }
 
         if (attachment.isDownloadable()) {
-            downloadSchematic(attachment);
+            downloadSchematic(attachment, preferWorldEdit);
         } else {
             openAttachmentUrl(attachment);
         }
@@ -145,27 +156,27 @@ public class AttachmentManager {
         return attachment.contentType() != null ? attachment.contentType() : "";
     }
 
-    private void downloadSchematic(ArchiveAttachment file) {
+    private void downloadSchematic(ArchiveAttachment file, boolean preferWorldEdit) {
         downloadStatus = "Checking existing downloads...";
 
         CompletableFuture.supplyAsync(() -> findExistingDownloadedAttachment(file), IO_EXECUTOR)
                 .thenAccept(existingPath -> {
                     if (existingPath != null) {
-                        handleExistingAttachment(file, existingPath);
+                        handleExistingAttachment(file, existingPath, preferWorldEdit);
                         return;
                     }
                     client.execute(() -> downloadStatus = "Downloading...");
-                    startSchematicDownload(file);
+                    startSchematicDownload(file, preferWorldEdit);
                 })
                 .exceptionally(e -> {
                     System.err.println("[Download] Failed to check existing files: " + e.getMessage());
                     client.execute(() -> downloadStatus = "Downloading...");
-                    startSchematicDownload(file);
+                    startSchematicDownload(file, preferWorldEdit);
                     return null;
                 });
     }
 
-    private void startSchematicDownload(ArchiveAttachment file) {
+    private void startSchematicDownload(ArchiveAttachment file, boolean preferWorldEdit) {
         CompletableFuture.runAsync(() -> {
             String downloadUrl = file.downloadUrl();
             if (downloadUrl == null || downloadUrl.isEmpty()) {
@@ -193,7 +204,7 @@ public class AttachmentManager {
 
             System.out.println("[Download] Sending request...");
             httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
-                    .thenAccept(response -> handleDownloadResponse(file, response))
+                    .thenAccept(response -> handleDownloadResponse(file, response, preferWorldEdit))
                     .exceptionally(e -> {
                         handleDownloadError(e);
                         return null;
@@ -201,7 +212,7 @@ public class AttachmentManager {
         });
     }
 
-    private void handleDownloadResponse(ArchiveAttachment file, HttpResponse<byte[]> response) {
+    private void handleDownloadResponse(ArchiveAttachment file, HttpResponse<byte[]> response, boolean preferWorldEdit) {
         System.out.println("[Download] Response status: " + response.statusCode());
         System.out.println("[Download] Content length: " + response.body().length);
 
@@ -235,21 +246,27 @@ public class AttachmentManager {
         boolean hashMismatch = expectedHash != null && actualHash != null && !expectedHash.equals(actualHash);
 
         processAttachmentBytes(file, response.body(), false)
-                .thenAccept(result -> {
+                .thenCompose(result -> mirrorToWorldEditIfNeededAsync(result.path(), preferWorldEdit)
+                    .thenApply(mirror -> new SaveProcessingResult(result, mirror)))
+                .thenAccept(processing -> {
+                    final SaveResult result = processing.result();
+                    final WorldEditMirrorResult worldEditMirror = processing.worldEditMirror();
                     final String finalFileName = result.fileName();
                     final Path finalPath = result.path();
                     final List<String> worldNames = result.worldNames();
                     final boolean finalHashMismatch = hashMismatch;
                     client.execute(() -> {
-                        boolean attemptedAutoLoad = shouldAutoLoadSchematic(file, finalPath);
-                        boolean autoLoaded = attemptedAutoLoad && LitematicaAutoLoader.loadIntoWorld(finalPath);
-                        downloadStatus = buildDownloadStatus(result, finalFileName, attemptedAutoLoad, autoLoaded,
-                                finalHashMismatch);
-                        showDownloadToast(result, finalFileName, finalPath, worldNames, autoLoaded, attemptedAutoLoad);
+                        AutoLoadResult autoLoad = tryAutoLoadSchematic(file, finalPath, worldEditMirror, preferWorldEdit);
+                        downloadStatus = buildDownloadStatus(result, finalFileName, autoLoad,
+                                finalHashMismatch, worldEditMirror);
+                        showDownloadToast(result, finalFileName, finalPath, worldNames, autoLoad,
+                            worldEditMirror);
+                        if (autoLoad.loaded()) {
+                            notifyAutoLoadSuccess();
+                        }
                         if (finalHashMismatch) {
                             showToast("Hash mismatch warning", finalFileName + " did not match expected SHA-256");
                         }
-                        System.out.println("Downloaded to: " + finalPath.toAbsolutePath());
                     });
                 })
                 .exceptionally(ex -> {
@@ -295,29 +312,95 @@ public class AttachmentManager {
         });
     }
 
-    private void handleExistingSchematic(ArchiveAttachment attachment, Path existingPath) {
+    private void handleExistingSchematic(ArchiveAttachment attachment, Path existingPath, boolean preferWorldEdit) {
         String fileName = existingPath.getFileName() != null
                 ? existingPath.getFileName().toString()
                 : existingPath.toString();
-        boolean attemptedAutoLoad = shouldAutoLoadSchematic(attachment, existingPath);
-        boolean autoLoaded = attemptedAutoLoad && LitematicaAutoLoader.loadIntoWorld(existingPath);
 
-        if (!attemptedAutoLoad) {
-            downloadStatus = "✓ Reused existing file: " + fileName;
-            showToast("Already downloaded", fileName);
+        boolean prefersWorldEditFlow = preferWorldEdit && canUseWorldEditLoader(existingPath, true);
+        if (prefersWorldEditFlow) {
+            mirrorToWorldEditIfNeededAsync(existingPath, true)
+                .thenAccept(worldEditMirror -> client.execute(() -> {
+                    Path worldEditPath = resolveWorldEditLoadPath(existingPath, worldEditMirror, true);
+                    if (worldEditPath == null) {
+                        downloadStatus = "✓ Reused existing file: " + fileName;
+                        showToast("Already downloaded", fileName);
+                        return;
+                    }
+                    String worldEditFileName = worldEditPath.getFileName() != null
+                            ? worldEditPath.getFileName().toString()
+                            : fileName;
+                    boolean loaded = WorldEditAutoLoader.loadIntoWorld(worldEditPath);
+                    if (loaded) {
+                        downloadStatus = "✓ Loaded existing file into WorldEdit: " + worldEditFileName;
+                        showToast("Loaded into WorldEdit", worldEditFileName);
+                        notifyAutoLoadSuccess();
+                    } else {
+                        downloadStatus = "✓ Reused existing file (failed to load into WorldEdit): " + worldEditFileName;
+                        showToast("Already downloaded", worldEditFileName + " (auto-load failed)");
+                    }
+                }))
+                .exceptionally(ex -> {
+                    client.execute(() -> {
+                        downloadStatus = "✓ Reused existing file: " + fileName;
+                        showToast("Already downloaded", fileName);
+                    });
+                    return null;
+                });
             return;
         }
 
-        if (autoLoaded) {
-            downloadStatus = "✓ Loaded existing file: " + fileName;
-            showToast("Loaded existing schematic", fileName);
-        } else {
-            downloadStatus = "✓ Reused existing file (auto-load failed): " + fileName;
-            showToast("Already downloaded", fileName + " (auto-load failed)");
+        boolean attemptedLitematica = shouldAutoLoadSchematic(attachment, existingPath);
+        if (attemptedLitematica) {
+            boolean loaded = LitematicaAutoLoader.loadIntoWorld(existingPath);
+            if (loaded) {
+                downloadStatus = "✓ Loaded existing file into Litematica: " + fileName;
+                showToast("Loaded into Litematica", fileName);
+                notifyAutoLoadSuccess();
+            } else {
+                downloadStatus = "✓ Reused existing file (failed to load into Litematica): " + fileName;
+                showToast("Already downloaded", fileName + " (auto-load failed)");
+            }
+            return;
         }
+
+        if (shouldUseWorldEditFlow(existingPath, false)) {
+            mirrorToWorldEditIfNeededAsync(existingPath, false)
+                .thenAccept(worldEditMirror -> client.execute(() -> {
+                    Path worldEditPath = resolveWorldEditLoadPath(existingPath, worldEditMirror, false);
+                    if (worldEditPath == null) {
+                        downloadStatus = "✓ Reused existing file: " + fileName;
+                        showToast("Already downloaded", fileName);
+                        return;
+                    }
+                    String worldEditFileName = worldEditPath.getFileName() != null
+                            ? worldEditPath.getFileName().toString()
+                            : fileName;
+                    boolean loaded = WorldEditAutoLoader.loadIntoWorld(worldEditPath);
+                    if (loaded) {
+                        downloadStatus = "✓ Loaded existing file into WorldEdit: " + worldEditFileName;
+                        showToast("Loaded into WorldEdit", worldEditFileName);
+                        notifyAutoLoadSuccess();
+                    } else {
+                        downloadStatus = "✓ Reused existing file (failed to load into WorldEdit): " + worldEditFileName;
+                        showToast("Already downloaded", worldEditFileName + " (auto-load failed)");
+                    }
+                }))
+                .exceptionally(ex -> {
+                    client.execute(() -> {
+                        downloadStatus = "✓ Reused existing file: " + fileName;
+                        showToast("Already downloaded", fileName);
+                    });
+                    return null;
+                });
+            return;
+        }
+
+        downloadStatus = "✓ Reused existing file: " + fileName;
+        showToast("Already downloaded", fileName);
     }
 
-    private void handleExistingAttachment(ArchiveAttachment attachment, Path existingPath) {
+    private void handleExistingAttachment(ArchiveAttachment attachment, Path existingPath, boolean preferWorldEdit) {
         if (attachment != null && attachment.wdl() != null) {
             client.execute(() -> downloadStatus = "Using cached WDL archive...");
             CompletableFuture.supplyAsync(() -> {
@@ -334,7 +417,7 @@ public class AttachmentManager {
                                 ? "✓ World saved from cache: saves/" + fileName
                                 : "✓ Reused existing file: " + fileName;
                         downloadStatus = base;
-                        showDownloadToast(result, fileName, result.path(), result.worldNames(), false, false);
+                        showDownloadToast(result, fileName, result.path(), result.worldNames(), AutoLoadResult.NONE, WorldEditMirrorResult.NONE);
                     }))
                     .exceptionally(ex -> {
                         handleDownloadError(ex);
@@ -342,7 +425,7 @@ public class AttachmentManager {
                     });
             return;
         }
-        client.execute(() -> handleExistingSchematic(attachment, existingPath));
+        client.execute(() -> handleExistingSchematic(attachment, existingPath, preferWorldEdit));
     }
 
     private CompletableFuture<SaveResult> processAttachmentBytes(ArchiveAttachment attachment, byte[] data, boolean fromCache) {
@@ -526,15 +609,131 @@ public class AttachmentManager {
         return LitematicaAutoLoader.isAvailable() && isSchematic;
     }
 
-    private String buildDownloadStatus(SaveResult result, String fileName, boolean attemptedAutoLoad,
-            boolean autoLoaded, boolean hashMismatch) {
+    private AutoLoadResult tryAutoLoadSchematic(ArchiveAttachment attachment, Path savedPath, WorldEditMirrorResult worldEditMirror, boolean preferWorldEdit) {
+        boolean prefersWorldEdit = preferWorldEdit && canUseWorldEditLoader(savedPath, true);
+        if (prefersWorldEdit) {
+            Path worldEditPath = resolveWorldEditLoadPath(savedPath, worldEditMirror, true);
+            boolean loaded = worldEditPath != null && WorldEditAutoLoader.loadIntoWorld(worldEditPath);
+            return new AutoLoadResult(true, loaded, "WorldEdit");
+        }
+
+        boolean attemptedLitematica = shouldAutoLoadSchematic(attachment, savedPath);
+        if (attemptedLitematica) {
+            boolean loaded = LitematicaAutoLoader.loadIntoWorld(savedPath);
+            return new AutoLoadResult(true, loaded, "Litematica");
+        }
+        boolean attemptedWorldEdit = shouldUseWorldEditFlow(savedPath, false);
+        if (attemptedWorldEdit) {
+            Path worldEditPath = resolveWorldEditLoadPath(savedPath, worldEditMirror, false);
+            boolean loaded = worldEditPath != null && WorldEditAutoLoader.loadIntoWorld(worldEditPath);
+            return new AutoLoadResult(true, loaded, "WorldEdit");
+        }
+        return AutoLoadResult.NONE;
+    }
+
+    private CompletableFuture<WorldEditMirrorResult> mirrorToWorldEditIfNeededAsync(Path sourcePath, boolean preferWorldEdit) {
+        if (!shouldMirrorToWorldEdit(sourcePath, preferWorldEdit)) {
+            return CompletableFuture.completedFuture(WorldEditMirrorResult.NONE);
+        }
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                if (sourcePath == null || !Files.isRegularFile(sourcePath)) {
+                    return WorldEditMirrorResult.NONE;
+                }
+                Path worldEditDir = getWorldEditSchematicsDirectory();
+                Files.createDirectories(worldEditDir);
+
+                Path normalizedSource = sourcePath.toAbsolutePath().normalize();
+                Path normalizedTargetDir = worldEditDir.toAbsolutePath().normalize();
+                if (normalizedSource.getParent() != null && normalizedSource.getParent().equals(normalizedTargetDir)) {
+                    return new WorldEditMirrorResult(false, true, normalizedSource);
+                }
+
+                String fileName = sourcePath.getFileName() != null ? sourcePath.getFileName().toString() : "download.schem";
+                byte[] data = Files.readAllBytes(sourcePath);
+                Path existingIdentical = findIdenticalFile(worldEditDir, fileName, data);
+                if (existingIdentical != null) {
+                    return new WorldEditMirrorResult(false, true, existingIdentical);
+                }
+
+                Path outputFile = ensureUniqueName(worldEditDir, fileName);
+                Files.write(outputFile, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                return new WorldEditMirrorResult(true, false, outputFile);
+            } catch (Exception e) {
+                System.err.println("Failed to copy to WorldEdit schematics: " + e.getMessage());
+                return WorldEditMirrorResult.NONE;
+            }
+        }, IO_EXECUTOR);
+    }
+
+    private boolean shouldMirrorToWorldEdit(Path sourcePath, boolean preferWorldEdit) {
+        return shouldUseWorldEditFlow(sourcePath, preferWorldEdit);
+    }
+
+    private boolean isWorldEditAvailable() {
+        return WorldEditAutoLoader.isAvailable();
+    }
+
+    private boolean shouldUseWorldEditFlow(Path schematicPath, boolean preferWorldEdit) {
+        if (preferWorldEdit) {
+            return canUseWorldEditLoader(schematicPath, true);
+        }
+        return canUseWorldEditLoader(schematicPath, false);
+    }
+
+    private boolean canUseWorldEditLoader(Path schematicPath, boolean allowWhenLitematicaPresent) {
+        if (schematicPath == null || schematicPath.getFileName() == null) {
+            return false;
+        }
+        if (!allowWhenLitematicaPresent && LitematicaAutoLoader.isAvailable()) {
+            return false;
+        }
+        if (!isWorldEditAvailable()) {
+            return false;
+        }
+        if (!isSingleplayerContext()) {
+            return false;
+        }
+        String lowerName = schematicPath.getFileName().toString().toLowerCase(Locale.ROOT);
+        return lowerName.endsWith(".schem") || lowerName.endsWith(".schematic");
+    }
+
+    private boolean isSingleplayerContext() {
+        var nativeClient = client != null ? client.nativeClient() : null;
+        return nativeClient != null
+            && nativeClient.player != null
+            && nativeClient.getSingleplayerServer() != null;
+    }
+
+    private Path resolveWorldEditLoadPath(Path sourcePath, WorldEditMirrorResult worldEditMirror, boolean preferWorldEdit) {
+        if (!shouldUseWorldEditFlow(sourcePath, preferWorldEdit)) {
+            return null;
+        }
+        if (worldEditMirror != null && worldEditMirror.path() != null) {
+            return worldEditMirror.path();
+        }
+        return null;
+    }
+
+    private Path getWorldEditSchematicsDirectory() {
+        return Paths.get(DownloadSettings.getInstance().getGameDirectory(), "config", "worldedit", "schematics");
+    }
+
+    private String buildDownloadStatus(SaveResult result, String fileName, AutoLoadResult autoLoad,
+            boolean hashMismatch, WorldEditMirrorResult worldEditMirror) {
+        String displayFileName = getDisplayFileName(fileName, worldEditMirror);
         String base = result.isWorldDownload()
-                ? "✓ World saved: saves/" + fileName
-                : "✓ Downloaded: " + fileName;
-        if (result.isWorldDownload() || !attemptedAutoLoad) {
+                ? "✓ World saved: saves/" + displayFileName
+                : "✓ Downloaded: " + displayFileName;
+        if (!result.isWorldDownload() && worldEditMirror != null && worldEditMirror.copied()) {
+            base += " • copied to WorldEdit";
+        }
+        if (result.isWorldDownload() || !autoLoad.attempted()) {
             return hashMismatch ? (base + " [WARNING: hash mismatch]") : base;
         }
-        String status = autoLoaded ? ("✓ Loaded " + fileName) : "- Downloaded (but failed to load): " + fileName;
+        String status = autoLoad.loaded()
+                ? ("✓ Loaded into " + autoLoad.targetLabel() + ": " + displayFileName)
+                : "- Downloaded (but failed to load into " + autoLoad.targetLabel() + "): " + displayFileName;
         return hashMismatch ? (status + " [WARNING: hash mismatch]") : status;
     }
 
@@ -805,26 +1004,54 @@ public class AttachmentManager {
         return Arrays.copyOf(buffer, offset);
     }
 
-    private void showDownloadToast(SaveResult result, String fileName, Path path, List<String> worldNames, boolean autoLoaded, boolean attemptedAutoLoad) {
+    private void showDownloadToast(
+        SaveResult result,
+        String fileName,
+        Path path,
+        List<String> worldNames,
+        AutoLoadResult autoLoad,
+        WorldEditMirrorResult worldEditMirror
+    ) {
         if (result == null) return;
+        String displayFileName = getDisplayFileName(fileName, worldEditMirror);
+        boolean loaded = autoLoad != null && autoLoad.loaded();
+        boolean copiedToWorldEdit = worldEditMirror != null && worldEditMirror.copied() && worldEditMirror.path() != null;
         if (result.isWorldDownload()) {
             List<String> names = (worldNames != null && !worldNames.isEmpty()) ? worldNames : List.of(fileName);
             String title = "World download saved";
             String body = "Worlds: " + String.join(", ", names);
             showToast(title, body);
-        } else if (attemptedAutoLoad) {
-            if (autoLoaded) {
-                showToast("Loaded into Litematica", fileName);
+        } else if (autoLoad.attempted()) {
+            if (loaded) {
+                showToast("Loaded into " + autoLoad.targetLabel(), displayFileName);
+            } else if (copiedToWorldEdit) {
+                showToast("Downloaded and copied to WorldEdit", displayFileName);
             } else {
-                showToast("Downloaded", fileName + " (auto-load failed)");
+                showToast("Downloaded", displayFileName + " (auto-load failed)");
             }
+        } else if (copiedToWorldEdit) {
+            showToast("Downloaded and copied to WorldEdit", displayFileName);
         } else {
-            showToast("Downloaded", fileName);
+            showToast("Downloaded", displayFileName);
         }
     }
 
     private void showToast(String title, String body) {
         client.showBasicToast(title, body);
+    }
+
+    private void notifyAutoLoadSuccess() {
+        try {
+            onLitematicaLoadSuccess.run();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String getDisplayFileName(String originalFileName, WorldEditMirrorResult worldEditMirror) {
+        if (worldEditMirror != null && worldEditMirror.path() != null && worldEditMirror.path().getFileName() != null) {
+            return worldEditMirror.path().getFileName().toString();
+        }
+        return originalFileName;
     }
 
     private static class ExtractionStats {
@@ -835,6 +1062,17 @@ public class AttachmentManager {
     }
 
     private record ExtractionOutcome(Path primaryWorldDir, List<String> worldNames) {}
+
+    private record WorldEditMirrorResult(boolean copied, boolean alreadyPresent, Path path) {
+        private static final WorldEditMirrorResult NONE = new WorldEditMirrorResult(false, false, null);
+    }
+
+    private record SaveProcessingResult(SaveResult result, WorldEditMirrorResult worldEditMirror) {
+    }
+
+    private record AutoLoadResult(boolean attempted, boolean loaded, String targetLabel) {
+        private static final AutoLoadResult NONE = new AutoLoadResult(false, false, "");
+    }
 
     private Path findIdenticalFile(Path dir, String fileName, byte[] data) {
         int dot = fileName.lastIndexOf('.');

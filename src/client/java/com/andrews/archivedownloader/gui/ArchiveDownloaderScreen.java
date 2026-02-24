@@ -3,6 +3,7 @@ package com.andrews.archivedownloader.gui;
 import com.andrews.archivedownloader.ArchiveDownloader;
 import net.fabricmc.loader.api.FabricLoader;
 
+import java.text.Normalizer;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,6 +23,7 @@ import com.andrews.archivedownloader.gui.widget.DiscordJoinPopup;
 import com.andrews.archivedownloader.gui.widget.LoadingSpinner;
 import com.andrews.archivedownloader.gui.widget.PostDetailPanel;
 import com.andrews.archivedownloader.gui.widget.PostGridWidget;
+import com.andrews.archivedownloader.gui.widget.ScrollBar;
 import com.andrews.archivedownloader.gui.widget.TagFilterWidget;
 import com.andrews.archivedownloader.gui.widget.UpdateAvailablePopup;
 import com.andrews.archivedownloader.models.ArchiveChannel;
@@ -42,12 +44,17 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private static final int SEARCH_BAR_HEIGHT = 20;
     private static final int PADDING = 10;
     private static final int SIDEBAR_WIDTH = 200;
+    private static final int SERVER_DROPDOWN_ITEM_HEIGHT = 18;
     private static final String DISCORD_INVITE_URL = "https://discord.gg/hztJMTsx2m";
     private static final String SUBMISSIONS_URL = "https://discord.com/channels/1375556143186837695/1375575317007040654";
     private static boolean updatePopupShownThisSession = false;
     private static String sessionSearchQuery = "";
     private static String sessionSelectedChannelPath = null;
     private static boolean sessionShowSubmissionsView = false;
+    private static double sessionGridScrollOffset = 0;
+    private static String sessionDetailPostId = "";
+    private static String sessionDetailPostSlug = "";
+    private static double sessionDetailPostScrollOffset = 0;
     private static final Map<String, TagState> sessionTagStates = new HashMap<>();
     private ServerEntry selectedServer = DownloadSettings.getInstance().getSelectedServer();
 
@@ -61,7 +68,6 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private CustomButton channelToggleButton;
     private CustomButton closeButton;
     private CustomButton submissionsButton;
-    private CustomButton detailCloseButton;
     private LoadingSpinner loadingSpinner;
     private DiscordJoinPopup discordPopup;
     private UpdateAvailablePopup updatePopup;
@@ -80,6 +86,13 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private String selectedChannelPath = null;
     private boolean noResultsFound = false;
     private boolean initialized = false;
+    private boolean pendingSessionGridRestore = false;
+    private double restoreGridScrollOffset = 0;
+    private boolean pendingSessionPostRestore = false;
+    private boolean restoringSessionPost = false;
+    private String restoreDetailPostId = "";
+    private String restoreDetailPostSlug = "";
+    private double restoreDetailPostScrollOffset = 0;
     private List<ArchiveChannel> channels = new ArrayList<>();
     private List<ArchivePostSummary> currentPosts = new ArrayList<>();
     private boolean showDetailOverlay = false;
@@ -89,6 +102,11 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private boolean submissionDataComplete = false;
     private ArchiveChannel hoveredChannel = null;
     private ServerEntry hoveredServer = null;
+    private ScrollBar serverDropdownScrollBar;
+    private double serverDropdownScrollOffset = 0;
+    private int serverDropdownScrollBarX = Integer.MIN_VALUE;
+    private int serverDropdownScrollBarY = Integer.MIN_VALUE;
+    private int serverDropdownScrollBarHeight = Integer.MIN_VALUE;
 
     private enum TagState {
         INCLUDE, EXCLUDE
@@ -104,6 +122,12 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         selectedChannelPath = sessionSelectedChannelPath;
         showSubmissionsView = sessionShowSubmissionsView;
         tagStates.putAll(sessionTagStates);
+        restoreGridScrollOffset = Math.max(0, sessionGridScrollOffset);
+        pendingSessionGridRestore = restoreGridScrollOffset > 0;
+        restoreDetailPostId = safeTrim(sessionDetailPostId);
+        restoreDetailPostSlug = safeTrim(sessionDetailPostSlug);
+        restoreDetailPostScrollOffset = Math.max(0, sessionDetailPostScrollOffset);
+        pendingSessionPostRestore = !restoreDetailPostId.isEmpty() || !restoreDetailPostSlug.isEmpty();
     }
 
     @Override
@@ -208,30 +232,17 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         }
 
         if (detailPanel == null) {
-            detailPanel = new PostDetailPanel(PADDING, gridY, gridWidth, gridHeight);
+            detailPanel = new PostDetailPanel(0, 0, this.width, this.height);
             detailPanel.setDiscordLinkOpener(this::requestDiscordLink);
+            detailPanel.setOnCloseRequested(() -> showDetailOverlay = false);
+            detailPanel.setOnLitematicaLoadSuccess(this::onClose);
             detailPanel.setServer(selectedServer);
         } else {
-            detailPanel.setDimensions(PADDING, gridY, gridWidth, gridHeight);
+            detailPanel.setDimensions(0, 0, this.width, this.height);
             detailPanel.setDiscordLinkOpener(this::requestDiscordLink);
+            detailPanel.setOnCloseRequested(() -> showDetailOverlay = false);
+            detailPanel.setOnLitematicaLoadSuccess(this::onClose);
             detailPanel.setServer(selectedServer);
-        }
-
-        int detailCloseSize = 20;
-        if (detailCloseButton == null) {
-            detailCloseButton = new CustomButton(
-                    this.width - PADDING - detailCloseSize,
-                    PADDING,
-                    detailCloseSize,
-                    detailCloseSize,
-                    UiText.of("X"),
-                    button -> {
-                        showDetailOverlay = false;
-                    });
-            detailCloseButton.setRenderAsXIcon(true);
-        } else {
-            detailCloseButton.setX(this.width - PADDING - detailCloseSize);
-            detailCloseButton.setY(PADDING);
         }
 
         if (showChannelPanel) {
@@ -515,11 +526,13 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                         if (postGrid != null) {
                             postGrid.resetPosts(new ArrayList<>(currentPosts));
                             postGrid.setExpectedTotalPosts(totalItems);
+                            maybeRestoreSessionGridScroll();
                         }
                     }
                 } else if (!isLoadingMore && postGrid != null) {
                     postGrid.resetPosts(new ArrayList<>());
                     postGrid.setExpectedTotalPosts(totalItems);
+                    maybeRestoreSessionGridScroll();
                 }
 
                 if (showSubmissionsView && channelCounts.isEmpty() && currentPage >= totalPages) {
@@ -530,6 +543,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                     channelPanel.setChannelCounts(channelCounts);
                 }
                 updateTagCounts(response.tagCounts());
+                maybeRestoreSessionPost();
 
                 isLoading = false;
                 isLoadingMore = false;
@@ -774,8 +788,8 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
     private void onPostClick(ArchivePostSummary post) {
         if (detailPanel != null && post != null) {
-            detailPanel.setDimensions(PADDING, PADDING, this.width - PADDING * 2, this.height - PADDING * 2);
-            detailPanel.setPost(post);
+            detailPanel.setDimensions(0, 0, this.width, this.height);
+            detailPanel.openPost(post);
             showDetailOverlay = true;
         }
     }
@@ -842,9 +856,6 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         if (showDetailOverlay && detailPanel != null) {
             RenderUtil.fillRect(renderContext, 0, 0, this.width, this.height, 0xAA000000);
             detailPanel.render(renderContext, mouseX, mouseY, delta);
-            if (detailCloseButton != null) {
-                detailCloseButton.render(context, mouseX, mouseY, delta);
-            }
         }
 
         if (detailPanel != null && detailPanel.hasImageViewerOpen()) {
@@ -885,20 +896,11 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             return detailPanel.mouseClicked(mouseEvent, doubled);
         }
 
-        if (showDetailOverlay && button == 0 && detailCloseButton != null
-                && isMouseOverButton(detailCloseButton, mouseX, mouseY)) {
-            UiMinecraftClient client = uiClientOrNull();
-            if (client != null) {
-                client.playButtonDownSound(detailCloseButton);
-            }
-            showDetailOverlay = false;
-            return true;
-        }
-
         if (showDetailOverlay && detailPanel != null) {
             if (detailPanel.mouseClicked(mouseEvent, doubled)) {
                 return true;
             }
+            detailPanel.closeTransientUi();
             showDetailOverlay = false;
             return true;
         }
@@ -914,7 +916,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         }
 
         if (showServerDropdown) {
-            if (handleServerDropdownClick(mouseX, mouseY)) {
+            if (handleServerDropdownClick(mouseEvent, doubled)) {
                 return true;
             }
             showServerDropdown = false;
@@ -961,6 +963,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
         if (channelOverlayOpen) {
             if (channelPanel != null && channelPanel.mouseClicked(mouseEvent, doubled)) {
+                return true;
+            }
+            if (channelDescriptionWidget != null && channelDescriptionWidget.mouseClicked(mouseEvent, doubled)) {
                 return true;
             }
             if (tagFilterWidget != null && tagFilterWidget.mouseClicked(mouseEvent, doubled)) {
@@ -1043,6 +1048,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             return apiTokenPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
         if (showServerDropdown) {
+            handleServerDropdownScroll(mouseX, mouseY, verticalAmount);
             return true;
         }
         if (updatePopup != null) {
@@ -1096,6 +1102,10 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             clearDiscordPopup();
             return false;
         }
+        if (detailPanel != null && detailPanel.hasDictionaryPopupOpen()) {
+            detailPanel.keyPressed(256, 0, 0); // 256 = GLFW_KEY_ESCAPE
+            return false;
+        }
         if (detailPanel != null && detailPanel.hasImageViewerOpen()) {
             detailPanel.keyPressed(256, 0, 0); // 256 = GLFW_KEY_ESCAPE
             return false;
@@ -1106,6 +1116,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             return false;
         }
         if (showDetailOverlay) {
+            if (detailPanel != null) {
+                detailPanel.closeTransientUi();
+            }
             showDetailOverlay = false;
             return false;
         }
@@ -1126,8 +1139,154 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         sessionSearchQuery = searchField != null ? searchField.getValue().trim() : currentSearchQuery;
         sessionSelectedChannelPath = selectedChannelPath;
         sessionShowSubmissionsView = showSubmissionsView;
+        sessionGridScrollOffset = postGrid != null ? Math.max(0, postGrid.getScrollOffset()) : 0;
+        persistSessionPostState();
         sessionTagStates.clear();
         sessionTagStates.putAll(tagStates);
+    }
+
+    private void maybeRestoreSessionGridScroll() {
+        if (!pendingSessionGridRestore || postGrid == null) {
+            return;
+        }
+        postGrid.setScrollOffset(restoreGridScrollOffset);
+        pendingSessionGridRestore = false;
+    }
+
+    private void persistSessionPostState() {
+        if (!showDetailOverlay || detailPanel == null) {
+            clearSessionPostState();
+            return;
+        }
+        ArchivePostSummary currentPost = detailPanel.getCurrentPostSummary();
+        if (currentPost == null) {
+            clearSessionPostState();
+            return;
+        }
+        sessionDetailPostId = safeTrim(currentPost.id());
+        sessionDetailPostSlug = buildPostSlug(currentPost);
+        sessionDetailPostScrollOffset = Math.max(0, detailPanel.getScrollOffset());
+    }
+
+    private void clearSessionPostState() {
+        sessionDetailPostId = "";
+        sessionDetailPostSlug = "";
+        sessionDetailPostScrollOffset = 0;
+    }
+
+    private void maybeRestoreSessionPost() {
+        if (!pendingSessionPostRestore || restoringSessionPost || detailPanel == null) {
+            return;
+        }
+
+        String postId = safeTrim(restoreDetailPostId);
+        String postSlug = safeTrim(restoreDetailPostSlug);
+        if (postId.isEmpty() && postSlug.isEmpty()) {
+            pendingSessionPostRestore = false;
+            return;
+        }
+
+        ArchivePostSummary cached = findPostSummaryInCurrentPosts(postId, postSlug);
+        if (cached != null) {
+            restoreSessionPost(cached);
+            return;
+        }
+
+        ServerEntry requestServer = selectedServer != null ? selectedServer : ServerDictionary.getDefaultServer();
+        restoringSessionPost = true;
+        ArchiveNetworkManager.findPostSummary(requestServer, postId, postSlug)
+            .thenAccept(summary -> {
+                UiMinecraftClient client = uiClientOrNull();
+                if (client == null) {
+                    return;
+                }
+                client.execute(() -> {
+                    restoringSessionPost = false;
+                    if (!pendingSessionPostRestore || !isActiveServer(requestServer)) {
+                        return;
+                    }
+                    if (summary == null) {
+                        pendingSessionPostRestore = false;
+                        return;
+                    }
+                    restoreSessionPost(summary);
+                });
+            })
+            .exceptionally(throwable -> {
+                UiMinecraftClient client = uiClientOrNull();
+                if (client != null) {
+                    client.execute(() -> {
+                        restoringSessionPost = false;
+                        pendingSessionPostRestore = false;
+                    });
+                } else {
+                    restoringSessionPost = false;
+                    pendingSessionPostRestore = false;
+                }
+                return null;
+            });
+    }
+
+    private ArchivePostSummary findPostSummaryInCurrentPosts(String postId, String postSlug) {
+        if (currentPosts == null || currentPosts.isEmpty()) {
+            return null;
+        }
+        for (ArchivePostSummary post : currentPosts) {
+            if (post == null) {
+                continue;
+            }
+            String candidateId = safeTrim(post.id());
+            if (!postId.isEmpty() && postId.equals(candidateId)) {
+                return post;
+            }
+            if (!postSlug.isEmpty() && postSlug.equals(buildPostSlug(post))) {
+                return post;
+            }
+        }
+        return null;
+    }
+
+    private void restoreSessionPost(ArchivePostSummary post) {
+        if (detailPanel == null || post == null) {
+            pendingSessionPostRestore = false;
+            restoringSessionPost = false;
+            return;
+        }
+        detailPanel.setDimensions(0, 0, this.width, this.height);
+        detailPanel.openPost(post);
+        detailPanel.setScrollOffset(restoreDetailPostScrollOffset);
+        showDetailOverlay = true;
+        pendingSessionPostRestore = false;
+        restoringSessionPost = false;
+    }
+
+    private static String buildPostSlug(ArchivePostSummary post) {
+        if (post == null) {
+            return "";
+        }
+        String code = safeTrim(post.code());
+        String titleSlug = slugifyName(post.title());
+        if (titleSlug.isEmpty()) {
+            return code;
+        }
+        if (code.isEmpty()) {
+            return titleSlug;
+        }
+        return code + "-" + titleSlug;
+    }
+
+    private static String slugifyName(String input) {
+        if (input == null || input.isBlank()) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(input, Normalizer.Form.NFKD);
+        String withoutDiacritics = normalized.replaceAll("\\p{M}", "");
+        String replaced = withoutDiacritics.replaceAll("[^a-zA-Z0-9]+", "-");
+        return replaced.replaceAll("^-+|-+$", "");
+    }
+
+    private static String safeTrim(String value) {
+        return value != null ? value.trim() : "";
     }
 
     private void renderChannelDescription(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
@@ -1154,7 +1313,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         if (channelDescriptionWidget != null) {
             channelDescriptionWidget.setBounds(boxX, boxY, boxWidth, boxHeight);
             channelDescriptionWidget.setChannel(channel);
-            channelDescriptionWidget.render(renderContext, uiClient().uiFont());
+            channelDescriptionWidget.render(renderContext, uiClient().uiFont(), mouseX, mouseY);
         }
 
         int tagY = boxY + boxHeight + UITheme.Dimensions.PADDING;
@@ -1176,20 +1335,29 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             return;
 
         ServerDropdownLayout layout = buildServerDropdownLayout(servers);
+        syncServerDropdownScroll(layout);
         int baseX = layout.x();
         int baseY = layout.y();
         int width = layout.width();
         int itemHeight = layout.itemHeight();
+        int viewportHeight = layout.viewportHeight();
+        int contentHeight = layout.contentHeight();
+        int listRight = baseX + width - (layout.hasScrollbar() ? UITheme.Dimensions.SCROLLBAR_WIDTH : 0);
 
         hoveredServer = null;
 
-        RenderUtil.fillRect(renderContext, baseX, baseY - 2, baseX + width, baseY + servers.size() * itemHeight + 2,
+        RenderUtil.fillRect(renderContext, baseX, baseY - 2, baseX + width, baseY + viewportHeight + 2,
                 UITheme.Colors.PANEL_BG_SECONDARY);
 
+        RenderUtil.enableScissor(renderContext, baseX, baseY, baseX + width, baseY + viewportHeight);
+        int listStartY = baseY - (int) serverDropdownScrollOffset;
         for (int i = 0; i < servers.size(); i++) {
             ServerEntry server = servers.get(i);
-            int itemY = baseY + i * itemHeight;
-            boolean hovered = mouseX >= baseX && mouseX < baseX + width && mouseY >= itemY
+            int itemY = listStartY + i * itemHeight;
+            if (itemY + itemHeight <= baseY || itemY >= baseY + viewportHeight) {
+                continue;
+            }
+            boolean hovered = mouseX >= baseX && mouseX < listRight && mouseY >= itemY
                     && mouseY < itemY + itemHeight;
             boolean selected = isActiveServer(server);
             if (hovered) {
@@ -1201,7 +1369,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                 bgColor = UITheme.Colors.BUTTON_BG_HOVER;
             }
 
-            RenderUtil.fillRect(renderContext, baseX + 1, itemY, baseX + width - 1, itemY + itemHeight, bgColor);
+            RenderUtil.fillRect(renderContext, baseX + 1, itemY, listRight - 1, itemY + itemHeight, bgColor);
             String serverName = server.name() != null && !server.name().isBlank()
                     ? server.name()
                     : (server.id() != null ? server.id() : "Server");
@@ -1213,13 +1381,31 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                     itemY + 4,
                     UITheme.Colors.TEXT_PRIMARY);
         }
+        RenderUtil.disableScissor(renderContext);
+
+        if (layout.hasScrollbar() && serverDropdownScrollBar != null) {
+            serverDropdownScrollBar.setScrollData(contentHeight, viewportHeight);
+            serverDropdownScrollBar.setScrollPercentage(layout.maxScroll() > 0
+                    ? serverDropdownScrollOffset / layout.maxScroll()
+                    : 0);
+            UiMinecraftClient client = uiClientOrNull();
+            long windowHandle = client != null ? client.windowHandle() : 0L;
+            if (windowHandle != 0L) {
+                boolean changed = serverDropdownScrollBar.updateAndRender(renderContext, mouseX, mouseY, delta, windowHandle);
+                if (changed || serverDropdownScrollBar.isDragging()) {
+                    serverDropdownScrollOffset = serverDropdownScrollBar.getScrollPercentage() * layout.maxScroll();
+                }
+            } else {
+                serverDropdownScrollBar.render(renderContext, mouseX, mouseY, delta);
+            }
+        }
 
         ServerEntry descServer = hoveredServer != null ? hoveredServer : getActiveServer();
-        renderServerDescriptionBox(renderContext, descServer, baseX, baseY, width, itemHeight, servers.size());
+        renderServerDescriptionBox(renderContext, descServer, baseX, baseY, width, itemHeight, viewportHeight);
     }
 
     private ServerDropdownLayout buildServerDropdownLayout(List<ServerEntry> servers) {
-        int itemHeight = 18;
+        int itemHeight = SERVER_DROPDOWN_ITEM_HEIGHT;
         int labelWidth = 0;
         for (ServerEntry server : servers) {
             if (server == null)
@@ -1227,21 +1413,32 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             String name = server.name() != null ? server.name() : "Server";
             labelWidth = Math.max(labelWidth, uiClient().uiFont().width(name));
         }
+        int contentHeight = servers.size() * itemHeight;
         int width = Math.max(140, labelWidth + UITheme.Dimensions.PADDING * 2);
         int x = serverButton != null ? serverButton.getX() : PADDING;
         int y = (serverButton != null ? serverButton.getY() + serverButton.getHeight() : PADDING) + 4;
+        int availableHeight = Math.max(itemHeight, this.height - y - PADDING);
+        int viewportHeight = Math.min(contentHeight, availableHeight);
+        boolean hasScrollbar = contentHeight > viewportHeight;
+        if (hasScrollbar) {
+            width += UITheme.Dimensions.SCROLLBAR_WIDTH;
+        }
         if (x + width > this.width - PADDING) {
             x = Math.max(PADDING, this.width - width - PADDING);
         }
-        return new ServerDropdownLayout(x, y, width, itemHeight);
+        return new ServerDropdownLayout(x, y, width, itemHeight, contentHeight, viewportHeight, hasScrollbar);
     }
 
-    private record ServerDropdownLayout(int x, int y, int width, int itemHeight) {
+    private record ServerDropdownLayout(int x, int y, int width, int itemHeight, int contentHeight, int viewportHeight,
+            boolean hasScrollbar) {
+        int maxScroll() {
+            return Math.max(0, contentHeight - viewportHeight);
+        }
     }
 
     // Tag rendering handled by TagFilterWidget; this method kept for compatibility.
     private void renderServerDescriptionBox(UiRenderContext renderContext, ServerEntry server, int dropdownX, int dropdownY,
-            int dropdownWidth, int itemHeight, int itemCount) {
+            int dropdownWidth, int itemHeight, int dropdownHeight) {
         if (server == null || server.description() == null || server.description().isBlank()) {
             return;
         }
@@ -1255,7 +1452,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         int boxWidth = Math.min(240, maxWidth);
         int textWidth = boxWidth - boxPadding * 2;
         int textHeight = RenderUtil.getWrappedTextHeight(UiMinecraftClient.getInstance().uiFont(), server.description(), textWidth);
-        int boxHeight = Math.max(itemHeight * itemCount + 4, textHeight + boxPadding * 2);
+        int boxHeight = Math.max(dropdownHeight + 4, textHeight + boxPadding * 2);
 
         RenderUtil.fillRect(renderContext, boxX, boxY, boxX + boxWidth, boxY + boxHeight, UITheme.Colors.PANEL_BG_SECONDARY);
         RenderUtil.fillRect(renderContext, boxX, boxY, boxX + boxWidth, boxY + 1, UITheme.Colors.BUTTON_BORDER);
@@ -1275,35 +1472,110 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                 UITheme.Colors.TEXT_SUBTITLE);
     }
 
-    private boolean handleServerDropdownClick(double mouseX, double mouseY) {
+    private boolean handleServerDropdownClick(UiMouseEvent click, boolean doubled) {
         if (!showServerDropdown || serverButton == null) {
             return false;
         }
+        double mouseX = click.x();
+        double mouseY = click.y();
         List<ServerEntry> servers = ServerDictionary.getServers();
         if (servers.isEmpty()) {
             showServerDropdown = false;
             return false;
         }
         ServerDropdownLayout layout = buildServerDropdownLayout(servers);
+        syncServerDropdownScroll(layout);
+        if (layout.hasScrollbar() && serverDropdownScrollBar != null && serverDropdownScrollBar.mouseClicked(click, doubled)) {
+            serverDropdownScrollOffset = serverDropdownScrollBar.getScrollPercentage() * layout.maxScroll();
+            return true;
+        }
         int x = layout.x();
         int y = layout.y();
         int width = layout.width();
         int itemHeight = layout.itemHeight();
-        int totalHeight = servers.size() * itemHeight;
+        int visibleHeight = layout.viewportHeight();
+        int listRight = x + width - (layout.hasScrollbar() ? UITheme.Dimensions.SCROLLBAR_WIDTH : 0);
 
-        boolean inside = mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + totalHeight;
+        boolean inside = mouseX >= x && mouseX < x + width && mouseY >= y - 2 && mouseY < y + visibleHeight + 2;
         if (!inside) {
             showServerDropdown = false;
             hoveredServer = null;
             return false;
         }
 
-        int index = (int) ((mouseY - y) / itemHeight);
-        if (index >= 0 && index < servers.size()) {
-            onServerSelected(servers.get(index));
+        boolean insideList = mouseX >= x && mouseX < listRight && mouseY >= y && mouseY < y + visibleHeight;
+        if (insideList) {
+            int index = (int) ((mouseY - y + serverDropdownScrollOffset) / itemHeight);
+            if (index >= 0 && index < servers.size()) {
+                onServerSelected(servers.get(index));
+                return true;
+            }
+        }
+        return true;
+    }
+
+    private void syncServerDropdownScroll(ServerDropdownLayout layout) {
+        int maxScroll = layout.maxScroll();
+        if (maxScroll <= 0) {
+            serverDropdownScrollOffset = 0;
+        } else {
+            serverDropdownScrollOffset = Math.max(0, Math.min(serverDropdownScrollOffset, maxScroll));
+        }
+        ensureServerDropdownScrollBar(layout);
+        if (layout.hasScrollbar() && serverDropdownScrollBar != null) {
+            serverDropdownScrollBar.setScrollData(layout.contentHeight(), layout.viewportHeight());
+            serverDropdownScrollBar.setScrollPercentage(maxScroll > 0 ? serverDropdownScrollOffset / maxScroll : 0);
+        }
+    }
+
+    private void ensureServerDropdownScrollBar(ServerDropdownLayout layout) {
+        if (!layout.hasScrollbar()) {
+            serverDropdownScrollBar = null;
+            serverDropdownScrollBarX = Integer.MIN_VALUE;
+            serverDropdownScrollBarY = Integer.MIN_VALUE;
+            serverDropdownScrollBarHeight = Integer.MIN_VALUE;
+            return;
+        }
+        int x = layout.x() + layout.width() - UITheme.Dimensions.SCROLLBAR_WIDTH;
+        int y = layout.y();
+        int height = layout.viewportHeight();
+        boolean needsNew = serverDropdownScrollBar == null
+                || x != serverDropdownScrollBarX
+                || y != serverDropdownScrollBarY
+                || height != serverDropdownScrollBarHeight;
+        if (needsNew) {
+            serverDropdownScrollBar = new ScrollBar(x, y, height);
+            serverDropdownScrollBarX = x;
+            serverDropdownScrollBarY = y;
+            serverDropdownScrollBarHeight = height;
+        }
+    }
+
+    private boolean handleServerDropdownScroll(double mouseX, double mouseY, double verticalAmount) {
+        if (!showServerDropdown || serverButton == null) {
+            return false;
+        }
+        List<ServerEntry> servers = ServerDictionary.getServers();
+        if (servers.isEmpty()) {
+            return false;
+        }
+        ServerDropdownLayout layout = buildServerDropdownLayout(servers);
+        syncServerDropdownScroll(layout);
+        boolean inside = mouseX >= layout.x() && mouseX < layout.x() + layout.width()
+                && mouseY >= layout.y() - 2 && mouseY < layout.y() + layout.viewportHeight() + 2;
+        if (!inside) {
+            return false;
+        }
+        int maxScroll = layout.maxScroll();
+        if (maxScroll <= 0) {
+            serverDropdownScrollOffset = 0;
             return true;
         }
-        return false;
+        serverDropdownScrollOffset = Math.max(0, Math.min(maxScroll, serverDropdownScrollOffset - verticalAmount * 12));
+        if (serverDropdownScrollBar != null) {
+            serverDropdownScrollBar.setScrollPercentage(serverDropdownScrollOffset / maxScroll);
+        }
+        return true;
     }
 
     private List<String> getDisplayedTags() {

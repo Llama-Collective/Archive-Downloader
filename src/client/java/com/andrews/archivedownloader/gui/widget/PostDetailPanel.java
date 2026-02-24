@@ -13,6 +13,7 @@ import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.util.TagUtil;
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
+import com.andrews.archivedownloader.wrapper.gui.UiFont;
 import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
 import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
 import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
@@ -21,16 +22,30 @@ import com.andrews.archivedownloader.wrapper.render.UiRenderPipeline;
 import com.andrews.archivedownloader.wrapper.render.UiTextureId;
 import com.andrews.archivedownloader.wrapper.text.UiText;
 
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.text.Normalizer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class PostDetailPanel implements UiRenderable, UiEventListener {
     private static final int MAX_IMAGE_SIZE = 120;
+    private static final String DICTIONARY_PATH_PREFIX = "/dictionary/";
+    private static final String ARCHIVE_PATH_PREFIX = "/archives/";
+    private static final int TOOLTIP_PADDING = 6;
+    private static final int TOOLTIP_MAX_WIDTH = 260;
 
     private int x;
     private int y;
@@ -44,12 +59,16 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
     private final UiMinecraftClient client;
     private final PostImageController imageController;
     private final AttachmentManager attachmentManager;
+    private final MarkdownRenderer recordMarkdownRenderer = new MarkdownRenderer();
 
     private double scrollOffset = 0;
+    private double pendingRestoredScrollOffset = -1;
     private int contentHeight = 0;
 
     private CustomButton prevImageButton;
     private CustomButton nextImageButton;
+    private CustomButton headerBackButton;
+    private CustomButton headerCloseButton;
     private CustomButton discordThreadButton;
     private CustomButton websiteButton;
 
@@ -58,6 +77,16 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
 
     private Consumer<String> discordLinkOpener;
     private ServerEntry server = ServerDictionary.getDefaultServer();
+    private DictionaryDefinitionPopup dictionaryPopup;
+    private String requestedDictionaryId;
+    private String hoveredDictionaryTooltip;
+    private int tooltipMouseX;
+    private int tooltipMouseY;
+    private final Map<String, String> cachedPostTooltipsByLink = new HashMap<>();
+    private final Set<String> pendingPostTooltipLinks = new HashSet<>();
+    private final Deque<ArchivePostSummary> postHistory = new ArrayDeque<>();
+    private Runnable onCloseRequested = () -> {
+    };
 
     public PostDetailPanel(int x, int y, int width, int height) {
         this.x = x;
@@ -67,8 +96,8 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         this.client = UiMinecraftClient.getInstance();
         this.imageController = new PostImageController(this.client);
         this.attachmentManager = new AttachmentManager(this.client);
-        int scrollBarYOffset = 30;
-        this.scrollBar = new ScrollBar(x + width - 8, y + scrollBarYOffset, height - scrollBarYOffset);
+        this.recordMarkdownRenderer.setOnLinkClicked(this::handleMarkdownLinkClicked);
+        this.scrollBar = new ScrollBar(x + width - 8, y, height);
     }
 
     public void setDimensions(int x, int y, int width, int height) {
@@ -76,18 +105,40 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         this.y = y;
         this.width = width;
         this.height = height;
-        int scrollBarYOffset = 30;
-        this.scrollBar = new ScrollBar(x + width - 8, y + scrollBarYOffset, height - scrollBarYOffset);
+        this.scrollBar = new ScrollBar(x + width - 8, y, height);
     }
 
     public void setDiscordLinkOpener(Consumer<String> opener) {
         this.discordLinkOpener = opener;
     }
 
+    public void setOnCloseRequested(Runnable onCloseRequested) {
+        this.onCloseRequested = onCloseRequested != null ? onCloseRequested : () -> {
+        };
+    }
+
+    public void setOnLitematicaLoadSuccess(Runnable callback) {
+        attachmentManager.setOnLitematicaLoadSuccess(callback);
+    }
+
+    public ArchivePostSummary getCurrentPostSummary() {
+        return postInfo;
+    }
+
+    public double getScrollOffset() {
+        return Math.max(0, scrollOffset);
+    }
+
+    public void setScrollOffset(double scrollOffset) {
+        pendingRestoredScrollOffset = Math.max(0, scrollOffset);
+    }
+
     public void setServer(ServerEntry server) {
         this.server = server != null ? server : ServerDictionary.getDefaultServer();
         this.attachmentManager.setServer(this.server);
         this.imageController.setServer(this.server);
+        this.cachedPostTooltipsByLink.clear();
+        this.pendingPostTooltipLinks.clear();
     }
 
     private int getDisplayImageWidth() {
@@ -177,22 +228,43 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
     }
 
     public void setPost(ArchivePostSummary post) {
+        openPost(post);
+    }
+
+    public void openPost(ArchivePostSummary post) {
+        loadPost(post, true, false);
+    }
+
+    private void navigateToPost(ArchivePostSummary post) {
+        loadPost(post, false, true);
+    }
+
+    private void loadPost(ArchivePostSummary post, boolean resetHistory, boolean pushCurrentToHistory) {
         if (post == null) {
             clear();
             return;
         }
 
-        if (this.postInfo != null && post.id() != null && post.id().equals(this.postInfo.id())) {
+        if (samePost(this.postInfo, post)) {
             return;
+        }
+        if (resetHistory) {
+            postHistory.clear();
+        } else if (pushCurrentToHistory && postInfo != null) {
+            postHistory.addLast(postInfo);
         }
 
         clearDownloadState();
         imageController.clear();
+        closeDictionaryPopup();
+        cachedPostTooltipsByLink.clear();
+        pendingPostTooltipLinks.clear();
 
         this.postInfo = post;
         this.postDetail = null;
         this.isLoadingDetails = true;
         this.scrollOffset = 0;
+        this.pendingRestoredScrollOffset = -1;
         this.attachmentHitboxes.clear();
 
         ArchiveNetworkManager.getPostDetails(server, post)
@@ -205,8 +277,34 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
                     });
                     return null;
                 });
+    }
 
-        imageController.setImages(List.of());
+    private void goBack() {
+        if (!postHistory.isEmpty()) {
+            ArchivePostSummary previous = postHistory.removeLast();
+            loadPost(previous, false, false);
+            return;
+        }
+        requestClose();
+    }
+
+    private void requestClose() {
+        closeTransientUi();
+        onCloseRequested.run();
+    }
+
+    private static boolean samePost(ArchivePostSummary left, ArchivePostSummary right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        String leftId = left.id() != null ? left.id().trim() : "";
+        String rightId = right.id() != null ? right.id().trim() : "";
+        if (!leftId.isEmpty() && !rightId.isEmpty()) {
+            return leftId.equals(rightId);
+        }
+        String leftCode = left.code() != null ? left.code().trim() : "";
+        String rightCode = right.code() != null ? right.code().trim() : "";
+        return !leftCode.isEmpty() && leftCode.equals(rightCode);
     }
 
     private void handlePostDetailLoaded(ArchivePostDetail detail) {
@@ -232,14 +330,25 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         this.postDetail = null;
         this.isLoadingDetails = false;
         this.scrollOffset = 0;
+        this.pendingRestoredScrollOffset = -1;
+        this.hoveredDictionaryTooltip = null;
+        this.cachedPostTooltipsByLink.clear();
+        this.pendingPostTooltipLinks.clear();
+        this.postHistory.clear();
         imageController.clear();
         clearDownloadState();
+        closeDictionaryPopup();
     }
 
     private void clearDownloadState() {
         attachmentManager.clear();
         this.discordThreadButton = null;
         this.websiteButton = null;
+    }
+
+    private void closeDictionaryPopup() {
+        dictionaryPopup = null;
+        requestedDictionaryId = null;
     }
 
     private boolean hasDiscordThread() {
@@ -302,6 +411,73 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         websiteButton.setY(yPos);
     }
 
+    private void ensureHeaderNavButtons(int contentY) {
+        int sidePadding = UITheme.Dimensions.PADDING;
+        int buttonHeight = UITheme.Dimensions.BUTTON_HEIGHT;
+        int closeButtonWidth = 72;
+        int gap = 8;
+        int closeX = x + width - sidePadding - closeButtonWidth;
+        int backX = x + sidePadding;
+        int availableBackWidth = Math.max(80, closeX - gap - backX);
+        String backLabel = buildBackButtonLabel();
+        int desiredBackWidth = Math.max(120, client.font().width(backLabel) + 18);
+        int backButtonWidth = Math.min(availableBackWidth, desiredBackWidth);
+
+        if (headerBackButton == null) {
+            headerBackButton = new CustomButton(
+                backX,
+                contentY,
+                backButtonWidth,
+                buttonHeight,
+                UiText.of(backLabel),
+                button -> goBack()
+            );
+        } else {
+            headerBackButton.setMessage(UiText.of(backLabel));
+            headerBackButton.setX(backX);
+            headerBackButton.setY(contentY);
+            headerBackButton.setWidth(backButtonWidth);
+            headerBackButton.setHeight(buttonHeight);
+        }
+        headerBackButton.active = true;
+
+        if (headerCloseButton == null) {
+            headerCloseButton = new CustomButton(
+                closeX,
+                contentY,
+                closeButtonWidth,
+                buttonHeight,
+                UiText.of("Close"),
+                button -> requestClose()
+            );
+        } else {
+            headerCloseButton.setX(closeX);
+            headerCloseButton.setY(contentY);
+            headerCloseButton.setWidth(closeButtonWidth);
+            headerCloseButton.setHeight(buttonHeight);
+        }
+        headerCloseButton.active = true;
+    }
+
+    private String buildBackButtonLabel() {
+        if (postHistory.isEmpty()) {
+            return "< Back to archives";
+        }
+        ArchivePostSummary previous = postHistory.peekLast();
+        if (previous == null) {
+            return "< Back";
+        }
+        String code = previous.code() != null ? previous.code().trim() : "";
+        if (!code.isEmpty()) {
+            return "< Back to " + code;
+        }
+        String title = previous.title() != null ? previous.title().trim() : "";
+        if (title.isEmpty()) {
+            return "< Back";
+        }
+        return "< Back to " + title;
+    }
+
     private void openDiscordThread() {
         String url = getDiscordThreadUrl();
         if (url == null || url.isBlank()) {
@@ -333,12 +509,246 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             }
             url = normalizedBase + "/?id=" + id;
         } else {
-            url = normalizedBase + "/archives/" + slug;
+            url = normalizedBase + "/archives/" + slug + "/";
         }
         try {
             UiPlatform.openUri(url);
         } catch (Exception e) {
             System.err.println("Failed to open website: " + e.getMessage());
+        }
+    }
+
+    private void handleMarkdownLinkClicked(String linkUrl) {
+        String target = linkUrl != null ? linkUrl.trim() : "";
+        if (target.isEmpty()) {
+            return;
+        }
+
+        String dictionaryId = extractDictionaryIdFromLink(target);
+        if (!dictionaryId.isEmpty()) {
+            openDictionaryPopup(dictionaryId);
+            return;
+        }
+
+        if (openPostFromLink(target)) {
+            return;
+        }
+
+        if (target.startsWith("/")) {
+            String websiteUrl = toAbsoluteWebsiteUrl(target);
+            if (websiteUrl.isEmpty()) {
+                return;
+            }
+            target = websiteUrl;
+        }
+
+        if (isDiscordUrl(target) && discordLinkOpener != null) {
+            discordLinkOpener.accept(target);
+            return;
+        }
+
+        openExternalLink(target);
+    }
+
+    private boolean openPostFromLink(String linkUrl) {
+        String postId = extractPostIdFromLink(linkUrl);
+        String postSlug = extractArchiveSlugFromLink(linkUrl);
+        if (postId.isEmpty() && postSlug.isEmpty()) {
+            return false;
+        }
+
+        ArchiveNetworkManager.findPostSummary(server, postId, postSlug)
+            .thenAccept(summary -> client.execute(() -> {
+                if (summary == null) {
+                    return;
+                }
+                closeDictionaryPopup();
+                navigateToPost(summary);
+            }));
+        return true;
+    }
+
+    private void openDictionaryPopup(String dictionaryId) {
+        String trimmed = dictionaryId != null ? dictionaryId.trim() : "";
+        if (trimmed.isEmpty()) {
+            return;
+        }
+        String requestKey = trimmed.toLowerCase(Locale.ROOT);
+        requestedDictionaryId = requestKey;
+        if (dictionaryPopup == null) {
+            dictionaryPopup = new DictionaryDefinitionPopup(this::closeDictionaryPopup, this::handleMarkdownLinkClicked);
+        }
+        dictionaryPopup.setWebsiteBase(getWebsiteBase());
+        dictionaryPopup.setDiscordThreadOpener(this::openDiscordLink);
+        dictionaryPopup.setLoading(trimmed);
+
+        ArchiveNetworkManager.getDictionaryEntry(server, trimmed)
+            .thenAccept(entry -> client.execute(() -> {
+                if (dictionaryPopup == null || !requestKey.equals(requestedDictionaryId)) {
+                    return;
+                }
+                dictionaryPopup.setEntry(entry);
+            }))
+            .exceptionally(throwable -> {
+                client.execute(() -> {
+                    if (dictionaryPopup == null || !requestKey.equals(requestedDictionaryId)) {
+                        return;
+                    }
+                    String message = throwable != null && throwable.getMessage() != null ? throwable.getMessage() : "Unknown error";
+                    dictionaryPopup.setError(trimmed, message);
+                });
+                return null;
+            });
+    }
+
+    private String toAbsoluteWebsiteUrl(String path) {
+        String websiteBase = normalizeWebsiteBase(getWebsiteBase());
+        if (websiteBase.isEmpty()) {
+            return "";
+        }
+        String normalizedPath = path.startsWith("/") ? path : "/" + path;
+        return websiteBase + normalizedPath;
+    }
+
+    private void openExternalLink(String url) {
+        try {
+            UiPlatform.openUri(url);
+        } catch (Exception e) {
+            System.err.println("Failed to open link: " + e.getMessage());
+        }
+    }
+
+    private void openDiscordLink(String url) {
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        if (discordLinkOpener != null) {
+            discordLinkOpener.accept(url);
+            return;
+        }
+        openExternalLink(url);
+    }
+
+    private static boolean isDiscordUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        return lower.startsWith("discord://")
+            || lower.startsWith("https://discord.com/")
+            || lower.startsWith("http://discord.com/")
+            || lower.startsWith("https://discordapp.com/")
+            || lower.startsWith("http://discordapp.com/");
+    }
+
+    private static String extractDictionaryIdFromLink(String link) {
+        String path = extractPath(link);
+        if (path.isEmpty() || !path.startsWith(DICTIONARY_PATH_PREFIX)) {
+            return "";
+        }
+        String slug = path.substring(DICTIONARY_PATH_PREFIX.length());
+        if (slug.isEmpty()) {
+            return "";
+        }
+        int slash = slug.indexOf('/');
+        if (slash >= 0) {
+            slug = slug.substring(0, slash);
+        }
+        String decodedSlug = URLDecoder.decode(slug, StandardCharsets.UTF_8);
+        int dash = decodedSlug.indexOf('-');
+        String id = dash >= 0 ? decodedSlug.substring(0, dash) : decodedSlug;
+        return id.trim();
+    }
+
+    private static String extractPostIdFromLink(String link) {
+        String query = extractQuery(link);
+        if (query.isEmpty()) {
+            return "";
+        }
+        String[] pairs = query.split("&");
+        for (String pair : pairs) {
+            if (pair == null || pair.isBlank()) {
+                continue;
+            }
+            int equalsIndex = pair.indexOf('=');
+            String rawKey = equalsIndex >= 0 ? pair.substring(0, equalsIndex) : pair;
+            String rawValue = equalsIndex >= 0 ? pair.substring(equalsIndex + 1) : "";
+            String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8).trim();
+            if (!"id".equalsIgnoreCase(key)) {
+                continue;
+            }
+            return URLDecoder.decode(rawValue, StandardCharsets.UTF_8).trim();
+        }
+        return "";
+    }
+
+    private static String extractArchiveSlugFromLink(String link) {
+        String path = extractPath(link);
+        if (path.isEmpty() || !path.startsWith(ARCHIVE_PATH_PREFIX)) {
+            return "";
+        }
+        String slug = path.substring(ARCHIVE_PATH_PREFIX.length());
+        if (slug.isEmpty()) {
+            return "";
+        }
+        int slash = slug.indexOf('/');
+        if (slash >= 0) {
+            slug = slug.substring(0, slash);
+        }
+        return URLDecoder.decode(slug, StandardCharsets.UTF_8).trim();
+    }
+
+    private static String extractPath(String link) {
+        String trimmed = link != null ? link.trim() : "";
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+
+        if (trimmed.startsWith("/")) {
+            int query = trimmed.indexOf('?');
+            int hash = trimmed.indexOf('#');
+            int cut = -1;
+            if (query >= 0 && hash >= 0) {
+                cut = Math.min(query, hash);
+            } else if (query >= 0) {
+                cut = query;
+            } else if (hash >= 0) {
+                cut = hash;
+            }
+            return cut >= 0 ? trimmed.substring(0, cut) : trimmed;
+        }
+
+        try {
+            URI uri = URI.create(trimmed);
+            String path = uri.getPath();
+            return path != null ? path : "";
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String extractQuery(String link) {
+        String trimmed = link != null ? link.trim() : "";
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+
+        if (trimmed.startsWith("/")) {
+            int queryStart = trimmed.indexOf('?');
+            if (queryStart < 0) {
+                return "";
+            }
+            String queryPart = trimmed.substring(queryStart + 1);
+            int hash = queryPart.indexOf('#');
+            return hash >= 0 ? queryPart.substring(0, hash) : queryPart;
+        }
+
+        try {
+            URI uri = URI.create(trimmed);
+            String query = uri.getRawQuery();
+            return query != null ? query : "";
+        } catch (Exception ignored) {
+            return "";
         }
     }
 
@@ -379,11 +789,133 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         return base + "-" + name;
     }
 
+    private static boolean isDictionaryLink(String linkUrl) {
+        return !extractDictionaryIdFromLink(linkUrl).isEmpty();
+    }
+
+    private static boolean isPostLink(String linkUrl) {
+        return !extractPostIdFromLink(linkUrl).isEmpty() || !extractArchiveSlugFromLink(linkUrl).isEmpty();
+    }
+
+    private static String stripDictionaryTooltipPrefix(String tooltip) {
+        if (tooltip == null) {
+            return null;
+        }
+        String trimmed = tooltip.trim();
+        if (trimmed.regionMatches(true, 0, "Definition:", 0, "Definition:".length())) {
+            trimmed = trimmed.substring("Definition:".length()).trim();
+        }
+        return trimmed;
+    }
+
+    private void requestPostTooltipLookup(String linkUrl) {
+        String target = linkUrl != null ? linkUrl.trim() : "";
+        if (target.isEmpty()
+            || cachedPostTooltipsByLink.containsKey(target)
+            || pendingPostTooltipLinks.contains(target)) {
+            return;
+        }
+
+        String postId = extractPostIdFromLink(target);
+        String postSlug = extractArchiveSlugFromLink(target);
+        if (postId.isEmpty() && postSlug.isEmpty()) {
+            return;
+        }
+
+        pendingPostTooltipLinks.add(target);
+        ArchiveNetworkManager.findPostSummary(server, postId, postSlug)
+            .thenAccept(summary -> client.execute(() -> {
+                pendingPostTooltipLinks.remove(target);
+                if (summary == null) {
+                    cachedPostTooltipsByLink.putIfAbsent(target, "");
+                    return;
+                }
+                String title = summary.title() != null ? summary.title().trim() : "";
+                cachedPostTooltipsByLink.put(target, title);
+            }))
+            .exceptionally(throwable -> {
+                client.execute(() -> pendingPostTooltipLinks.remove(target));
+                return null;
+            });
+    }
+
+    private void renderDictionaryTooltip(UiRenderContext renderContext, String text, int mouseX, int mouseY) {
+        if (text == null || text.isBlank() || dictionaryPopup != null) {
+            return;
+        }
+
+        UiFont font = client.uiFont();
+        int maxTextWidth = Math.min(TOOLTIP_MAX_WIDTH, Math.max(100, width - 40));
+        List<String> lines = wrapTooltipText(font, text, maxTextWidth);
+        if (lines.isEmpty()) {
+            return;
+        }
+
+        int textWidth = 0;
+        for (String line : lines) {
+            textWidth = Math.max(textWidth, font.width(line));
+        }
+        int boxWidth = textWidth + TOOLTIP_PADDING * 2;
+        int lineHeight = Math.max(font.lineHeight(), 1) + 1;
+        int boxHeight = lines.size() * lineHeight + TOOLTIP_PADDING * 2;
+
+        int screenWidth = client.guiScaledWidth();
+        int screenHeight = client.guiScaledHeight();
+        int tooltipX = mouseX + 10;
+        int tooltipY = mouseY + 12;
+        if (tooltipX + boxWidth > screenWidth - 4) {
+            tooltipX = Math.max(4, mouseX - boxWidth - 10);
+        }
+        if (tooltipY + boxHeight > screenHeight - 4) {
+            tooltipY = Math.max(4, mouseY - boxHeight - 8);
+        }
+
+        RenderUtil.fillRect(renderContext, tooltipX, tooltipY, tooltipX + boxWidth, tooltipY + boxHeight, 0xF0181820);
+        RenderUtil.fillRect(renderContext, tooltipX, tooltipY, tooltipX + boxWidth, tooltipY + 1, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, tooltipX, tooltipY + boxHeight - 1, tooltipX + boxWidth, tooltipY + boxHeight, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, tooltipX, tooltipY, tooltipX + 1, tooltipY + boxHeight, UITheme.Colors.BUTTON_BORDER);
+        RenderUtil.fillRect(renderContext, tooltipX + boxWidth - 1, tooltipY, tooltipX + boxWidth, tooltipY + boxHeight, UITheme.Colors.BUTTON_BORDER);
+
+        int textY = tooltipY + TOOLTIP_PADDING;
+        for (String line : lines) {
+            RenderUtil.drawString(renderContext, font, line, tooltipX + TOOLTIP_PADDING, textY, UITheme.Colors.TEXT_PRIMARY);
+            textY += lineHeight;
+        }
+    }
+
+    private static List<String> wrapTooltipText(UiFont font, String text, int maxWidth) {
+        List<String> lines = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return lines;
+        }
+
+        String[] words = text.trim().split("\\s+");
+        StringBuilder current = new StringBuilder();
+        for (String word : words) {
+            if (word.isBlank()) {
+                continue;
+            }
+            String candidate = current.isEmpty() ? word : current + " " + word;
+            if (!current.isEmpty() && font.width(candidate) > maxWidth) {
+                lines.add(current.toString());
+                current = new StringBuilder(word);
+            } else {
+                current = new StringBuilder(candidate);
+            }
+        }
+        if (!current.isEmpty()) {
+            lines.add(current.toString());
+        }
+
+        return lines;
+    }
+
     @Override
     public void render(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
         var context = renderContext.graphics();
         int renderMouseX = mouseX;
         int renderMouseY = mouseY;
+        hoveredDictionaryTooltip = null;
 
         RenderUtil.fillRect(renderContext, x, y, x + width, y + height, UITheme.Colors.PANEL_BG_SECONDARY);
 
@@ -398,11 +930,19 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         }
 
         int contentStartY = y + UITheme.Dimensions.PADDING;
-        RenderUtil.enableScissor(renderContext, x + 1, contentStartY, x + width, y + height);
-
-        int currentY = contentStartY + UITheme.Dimensions.PADDING - (int) scrollOffset;
+        int currentY = contentStartY - (int) scrollOffset;
         contentHeight = 0;
         attachmentHitboxes.clear();
+
+        ensureHeaderNavButtons(currentY);
+        if (headerBackButton != null) {
+            headerBackButton.render(context, renderMouseX, renderMouseY, delta);
+        }
+        if (headerCloseButton != null) {
+            headerCloseButton.render(context, renderMouseX, renderMouseY, delta);
+        }
+        currentY += UITheme.Dimensions.BUTTON_HEIGHT + 10;
+        contentHeight += UITheme.Dimensions.BUTTON_HEIGHT + 10;
 
         int containerWidth = getDisplayImageWidth();
         int containerHeight = getDisplayImageHeight();
@@ -530,7 +1070,44 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             contentHeight += 16;
         }
 
-        if (postDetail != null && postDetail.recordSections() != null && !postDetail.recordSections().isEmpty()) {
+        String detailMarkdown = postDetail != null ? postDetail.recordMarkdown() : "";
+        if (postDetail != null && detailMarkdown != null && !detailMarkdown.isBlank()) {
+            currentY += 8;
+            contentHeight += 8;
+
+            int markdownX = x + UITheme.Dimensions.PADDING;
+            int markdownWidth = Math.max(1, width - UITheme.Dimensions.PADDING * 2);
+            recordMarkdownRenderer.setMarkdown(detailMarkdown);
+            recordMarkdownRenderer.setVerticalOffset(0);
+            recordMarkdownRenderer.setBounds(markdownX, currentY, markdownWidth, 1);
+            int markdownHeight = Math.max(1, recordMarkdownRenderer.getRequiredHeight(client.uiFont()));
+            recordMarkdownRenderer.setBounds(markdownX, currentY, markdownWidth, markdownHeight);
+            recordMarkdownRenderer.render(renderContext, client.uiFont(), mouseX, mouseY);
+
+            String hoveredLink = recordMarkdownRenderer.getHoveredLink();
+            String rawHoveredTooltip = recordMarkdownRenderer.getHoveredLinkTooltip();
+            String dictionaryTooltip = stripDictionaryTooltipPrefix(rawHoveredTooltip);
+            if (isDictionaryLink(hoveredLink) && dictionaryTooltip != null && !dictionaryTooltip.isBlank()) {
+                hoveredDictionaryTooltip = dictionaryTooltip;
+                tooltipMouseX = mouseX;
+                tooltipMouseY = mouseY;
+            } else if (isPostLink(hoveredLink)) {
+                String postTooltip = rawHoveredTooltip != null ? rawHoveredTooltip.trim() : "";
+                if (postTooltip.isEmpty()) {
+                    postTooltip = cachedPostTooltipsByLink.getOrDefault(hoveredLink, "");
+                }
+                if (postTooltip.isEmpty()) {
+                    requestPostTooltipLookup(hoveredLink);
+                } else {
+                    hoveredDictionaryTooltip = postTooltip;
+                    tooltipMouseX = mouseX;
+                    tooltipMouseY = mouseY;
+                }
+            }
+
+            currentY += markdownHeight + 8;
+            contentHeight += markdownHeight + 8;
+        } else if (postDetail != null && postDetail.recordSections() != null && !postDetail.recordSections().isEmpty()) {
             currentY += 8;
             contentHeight += 8;
             for (ArchiveRecordSection section : postDetail.recordSections()) {
@@ -636,8 +1213,12 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         }
 
         contentHeight += UITheme.Dimensions.PADDING * 2;
-
-        RenderUtil.disableScissor(renderContext);
+        double maxContentScroll = getMaxScrollOffset();
+        if (pendingRestoredScrollOffset >= 0) {
+            scrollOffset = pendingRestoredScrollOffset;
+            pendingRestoredScrollOffset = -1;
+        }
+        scrollOffset = Math.max(0, Math.min(scrollOffset, maxContentScroll));
 
         if (contentHeight > height) {
             scrollBar.setScrollData(contentHeight, height);
@@ -646,7 +1227,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             if (client.windowHandle() != 0L) {
                 long windowHandle = client.windowHandle();
                 if (scrollBar.updateAndRender(renderContext, mouseX, mouseY, delta, windowHandle)) {
-                    double maxScroll = Math.max(0, contentHeight - height);
+                    double maxScroll = getMaxScrollOffset();
                     scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
                 }
             } else {
@@ -654,10 +1235,25 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             }
         }
 
+        if (hoveredDictionaryTooltip != null && !hoveredDictionaryTooltip.isBlank()) {
+            renderDictionaryTooltip(renderContext, hoveredDictionaryTooltip, tooltipMouseX, tooltipMouseY);
+        }
+
+        if (dictionaryPopup != null) {
+            dictionaryPopup.render(renderContext, mouseX, mouseY, delta);
+        }
     }
 
     public boolean hasImageViewerOpen() {
         return imageController.hasImageViewerOpen();
+    }
+
+    public boolean hasDictionaryPopupOpen() {
+        return dictionaryPopup != null;
+    }
+
+    public void closeTransientUi() {
+        closeDictionaryPopup();
     }
 
     public void renderImageViewer(UiRenderContext context, int mouseX, int mouseY, float delta) {
@@ -701,8 +1297,32 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         double mouseY = click.y();
         int button = click.button();
 
+        if (dictionaryPopup != null) {
+            return dictionaryPopup.mouseClicked(click, doubled);
+        }
+
         if (imageController.hasImageViewerOpen()) {
             return imageController.mouseClicked(click, doubled);
+        }
+
+        if (button == 0 && headerBackButton != null && headerBackButton.active) {
+            if (mouseX >= headerBackButton.getX() &&
+                mouseX < headerBackButton.getX() + headerBackButton.getWidth() &&
+                mouseY >= headerBackButton.getY() &&
+                mouseY < headerBackButton.getY() + headerBackButton.getHeight()) {
+                goBack();
+                return true;
+            }
+        }
+
+        if (button == 0 && headerCloseButton != null && headerCloseButton.active) {
+            if (mouseX >= headerCloseButton.getX() &&
+                mouseX < headerCloseButton.getX() + headerCloseButton.getWidth() &&
+                mouseY >= headerCloseButton.getY() &&
+                mouseY < headerCloseButton.getY() + headerCloseButton.getHeight()) {
+                requestClose();
+                return true;
+            }
         }
 
         if (websiteButton != null && websiteButton.active && button == 0) {
@@ -733,11 +1353,18 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             return true;
         }
 
+        if (postDetail != null) {
+            String markdown = postDetail.recordMarkdown();
+            if (markdown != null && !markdown.isBlank() && recordMarkdownRenderer.mouseClicked(click, doubled)) {
+                return true;
+            }
+        }
+
         UiTextureId currentImageTexture = imageController.getCurrentImageTexture();
         boolean isLoadingImage = imageController.isLoadingImage();
         if (button == 0 && currentImageTexture != null && !isLoadingImage && postInfo != null) {
             int contentStartY = y + UITheme.Dimensions.PADDING;
-            int currentY = contentStartY + UITheme.Dimensions.PADDING - (int) scrollOffset;
+            int currentY = contentStartY - (int) scrollOffset;
 
             int containerWidth = getDisplayImageWidth();
             int containerHeight = getDisplayImageHeight();
@@ -784,7 +1411,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         if (button == 0 && !attachmentHitboxes.isEmpty()) {
             for (AttachmentHitbox hit : attachmentHitboxes) {
                 if (hit.contains(mouseX, mouseY) && hit.attachment() != null) {
-                    attachmentManager.handleAttachmentClick(hit.attachment());
+                    attachmentManager.handleAttachmentClick(hit.attachment(), click.shiftDown());
                     return true;
                 }
             }
@@ -801,11 +1428,18 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         }
     }
 
+    private double getMaxScrollOffset() {
+        return Math.max(0, contentHeight - height);
+    }
+
     @Override
     public boolean mouseDragged(UiMouseEvent click, double offsetX, double offsetY) {
+        if (dictionaryPopup != null) {
+            return dictionaryPopup.mouseDragged(click, offsetX, offsetY);
+        }
         if (scrollBar != null
                 && (scrollBar.isDragging() || scrollBar.mouseDragged(click, offsetX, offsetY))) {
-            double maxScroll = Math.max(0, contentHeight - height);
+            double maxScroll = getMaxScrollOffset();
             scrollOffset = scrollBar.getScrollPercentage() * maxScroll;
             return true;
         }
@@ -814,6 +1448,9 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
 
     @Override
     public boolean mouseReleased(UiMouseEvent click) {
+        if (dictionaryPopup != null) {
+            return dictionaryPopup.mouseReleased(click);
+        }
         if (imageController.hasImageViewerOpen()) {
             return imageController.mouseReleased(click);
         }
@@ -825,12 +1462,15 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
     }
 
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (dictionaryPopup != null) {
+            return dictionaryPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
         if (imageController.hasImageViewerOpen()) {
             return true;
         }
 
         if (mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height) {
-            double maxScroll = Math.max(0, contentHeight - height + UITheme.Dimensions.PADDING);
+            double maxScroll = getMaxScrollOffset();
             scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - verticalAmount * 20));
             return true;
         }
@@ -838,6 +1478,13 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
     }
 
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (dictionaryPopup != null) {
+            if (keyCode == 256) { // Esc
+                closeDictionaryPopup();
+                return true;
+            }
+            return true;
+        }
         if (imageController.hasImageViewerOpen()) {
             return imageController.keyPressed(keyCode, scanCode, modifiers);
         }
