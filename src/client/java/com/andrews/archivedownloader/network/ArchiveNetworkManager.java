@@ -1227,7 +1227,7 @@ public class ArchiveNetworkManager {
 		List<ArchiveReference> references = data.revision != null && data.revision.references != null
 			? data.revision.references
 			: (data.references != null ? data.references : List.of());
-		String recordMarkdown = ReferenceUtils.transformOutputWithReferencesForWebsiteStyle(
+		String recordMarkdown = ReferenceUtils.transformOutputWithReferencesForMod(
 			postToMarkdown(records, recordStyles, Map.of()),
 			references,
 			id -> dictionarySummaries != null ? dictionarySummaries.get(id) : null
@@ -1515,7 +1515,7 @@ public class ArchiveNetworkManager {
 			getSchemaStyles(server),
 			data.styles != null ? data.styles : Map.of()
 		);
-		String recordMarkdown = ReferenceUtils.transformOutputWithReferencesForWebsiteStyle(
+		String recordMarkdown = ReferenceUtils.transformOutputWithReferencesForMod(
 			postToMarkdown(
 				data.records,
 				data.styles != null ? data.styles : Map.of(),
@@ -1591,7 +1591,7 @@ public class ArchiveNetworkManager {
 		List<String> terms = data != null && data.terms != null ? data.terms : List.of();
 		List<ArchiveReference> references = data != null && data.references != null ? data.references : List.of();
 		String definition = data != null && data.definition != null ? data.definition : "";
-		String definitionMarkdown = ReferenceUtils.transformOutputWithReferencesForWebsiteStyle(
+		String definitionMarkdown = ReferenceUtils.transformOutputWithReferencesForMod(
 			definition,
 			references,
 			id -> dictionarySummaries != null ? dictionarySummaries.get(id) : null

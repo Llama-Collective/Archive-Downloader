@@ -21,6 +21,7 @@ public final class ReferenceUtils {
 	private static final String REF_TYPE_ARCHIVED_POST = "archivedPost";
 	private static final String REF_TYPE_USER_MENTION = "userMention";
 	private static final String REF_TYPE_CHANNEL_MENTION = "channelMention";
+	private static final String DISCORD_LINK_PATH_PREFIX = "/discord-link";
 
 	private static final Pattern MARKDOWN_LINK_PATTERN = Pattern.compile("\\[([^\\]]+)\\]\\(([^)\\s]+)(?:\\s+\"([^\"]+)\")?\\)");
 	private static final Pattern DISCORD_LINK_PATTERN = Pattern.compile("https?://(?:canary\\.|ptb\\.)?discord(?:app)?\\.com/channels/(\\d+)/(\\d+)(?:/(\\d+))?");
@@ -28,7 +29,7 @@ public final class ReferenceUtils {
 	private ReferenceUtils() {
 	}
 
-	public static String transformOutputWithReferencesForWebsiteStyle(
+	public static String transformOutputWithReferencesForMod(
 		String text,
 		List<ArchiveReference> references,
 		Function<String, String> dictionaryTooltipLookup
@@ -99,7 +100,7 @@ public final class ReferenceUtils {
 			String hyperlinkURL = hyperlink != null && hyperlink.groups().size() > 1 ? hyperlink.groups().get(1) : null;
 			String hyperlinkTitle = hyperlink != null && hyperlink.groups().size() > 2 ? hyperlink.groups().get(2) : null;
 
-			String replacement = replaceReferenceForWebsiteStyle(
+			String replacement = replaceReferenceForMod(
 				match.reference(),
 				fullMatchedText,
 				isHeader,
@@ -179,19 +180,46 @@ public final class ReferenceUtils {
 		String type = safeTrim(reference.type());
 		if (REF_TYPE_DICTIONARY_TERM.equals(type)) {
 			String id = safeTrim(reference.id());
-			String term = !safeTrim(dictionaryTerm).isEmpty() ? dictionaryTerm : safeTrim(reference.term());
 			if (id.isEmpty()) {
 				return "";
 			}
-			return "/dictionary/" + encodePathSegment(buildDictionarySlug(id, term));
+			return "/dictionary/" + encodePathSegment(id);
 		}
 		if (REF_TYPE_ARCHIVED_POST.equals(type)) {
-			return "/archives/" + buildEntrySlugFromReference(reference);
+			String id = safeTrim(reference.id());
+			if (id.isEmpty()) {
+				return "";
+			}
+			return "/archive/" + encodePathSegment(id);
 		}
 		if (REF_TYPE_CHANNEL_MENTION.equals(type)) {
 			return safeTrim(reference.channelURL());
 		}
 		return safeTrim(reference.url());
+	}
+
+	private static String buildReferenceUrlForMod(ArchiveReference reference, String dictionaryTerm) {
+		if (reference == null) {
+			return "";
+		}
+		String type = safeTrim(reference.type());
+		if (REF_TYPE_DICTIONARY_TERM.equals(type)) {
+			String id = safeTrim(reference.id());
+			if (id.isEmpty()) {
+				return "";
+			}
+			// Use canonical ID path for in-mod links to avoid slug round-tripping.
+			return "/dictionary/" + encodePathSegment(id);
+		}
+		if (REF_TYPE_ARCHIVED_POST.equals(type)) {
+			String id = safeTrim(reference.id());
+			if (!id.isEmpty()) {
+				// Use direct post id for in-mod navigation.
+				return "/archive/" + encodePathSegment(id);
+			}
+			return "";
+		}
+		return buildReferenceUrl(reference, dictionaryTerm);
 	}
 
 	public static String buildDictionarySlug(String id, String term) {
@@ -203,22 +231,7 @@ public final class ReferenceUtils {
 		return safeId + "-" + primary;
 	}
 
-	public static String buildEntrySlugFromReference(ArchiveReference reference) {
-		if (reference == null) {
-			return "";
-		}
-		String code = safeTrim(reference.code());
-		String slugName = slugifyName(reference.name());
-		if (slugName.isEmpty()) {
-			return code;
-		}
-		if (code.isEmpty()) {
-			return slugName;
-		}
-		return code + "-" + slugName;
-	}
-
-	private static String replaceReferenceForWebsiteStyle(
+	private static String replaceReferenceForMod(
 		ArchiveReference reference,
 		String matchedText,
 		boolean isHeader,
@@ -240,17 +253,22 @@ public final class ReferenceUtils {
 			}
 			String tooltip = dictionaryTooltipLookup != null ? safeTrim(dictionaryTooltipLookup.apply(dictionaryId)) : "";
 			String safeTitle = sanitizeMarkdownLinkTitle(tooltip);
-			String slug = buildDictionarySlug(dictionaryId, safeTrim(reference.term()));
-			String newURL = "/dictionary/" + encodePathSegment(slug);
+			String newURL = buildReferenceUrlForMod(reference, safeTrim(reference.term()));
+			if (newURL.isEmpty()) {
+				return null;
+			}
 			dictionarySeen.add(dictionaryId);
 			if (!safeTitle.isEmpty()) {
-				return "[" + matchedText + "](" + newURL + " \"Definition: " + safeTitle + "\")";
+				return "[" + matchedText + "](" + newURL + " \"" + safeTitle + "\")";
 			}
 			return "[" + matchedText + "](" + newURL + ")";
 		}
 
 		if (REF_TYPE_ARCHIVED_POST.equals(type)) {
-			String newURL = "/archives/" + buildEntrySlugFromReference(reference);
+			String newURL = buildReferenceUrlForMod(reference, "");
+			if (newURL.isEmpty()) {
+				return null;
+			}
 			String safeTitle = sanitizeMarkdownLinkTitle(safeTrim(reference.name()));
 			if (isWithinHyperlink) {
 				String linkText = hyperlinkText != null ? hyperlinkText : "";
@@ -286,13 +304,9 @@ public final class ReferenceUtils {
 				if (!url.isEmpty()) {
 					String serverName = safeTrim(reference.serverName());
 					String tooltip = "Message " + (!serverName.isEmpty() ? "on " + serverName + " Discord" : "on Discord");
-					rendered = "[[Link]](" + url + " \"" + sanitizeMarkdownLinkTitle(tooltip) + "\")";
+					String linkTarget = buildDiscordLinkTargetForMod(reference, url);
+					rendered = "[[Discord Link]](" + linkTarget + " \"" + sanitizeMarkdownLinkTitle(tooltip) + "\")";
 				}
-			}
-			String serverName = safeTrim(reference.serverName());
-			String joinUrl = safeTrim(reference.serverJoinURL());
-			if (!serverName.isEmpty() && !joinUrl.isEmpty()) {
-				rendered += " ([Join " + serverName + "](" + joinUrl + "))";
 			}
 			return rendered;
 		}
@@ -498,7 +512,32 @@ public final class ReferenceUtils {
 		return text.replace("\"", "'").replace("\n", " ").trim();
 	}
 
+	private static String buildDiscordLinkTargetForMod(ArchiveReference reference, String messageUrl) {
+		String target = safeTrim(messageUrl);
+		if (target.isEmpty()) {
+			return "";
+		}
+		String joinUrl = reference != null ? safeTrim(reference.serverJoinURL()) : "";
+		String serverName = reference != null ? safeTrim(reference.serverName()) : "";
+		if (joinUrl.isEmpty()) {
+			return target;
+		}
+		StringBuilder builder = new StringBuilder(DISCORD_LINK_PATH_PREFIX)
+			.append("?url=")
+			.append(encodeQuerySegment(target))
+			.append("&join=")
+			.append(encodeQuerySegment(joinUrl));
+		if (!serverName.isEmpty()) {
+			builder.append("&server=").append(encodeQuerySegment(serverName));
+		}
+		return builder.toString();
+	}
+
 	private static String encodePathSegment(String value) {
+		return URLEncoder.encode(value != null ? value : "", StandardCharsets.UTF_8).replace("+", "%20");
+	}
+
+	private static String encodeQuerySegment(String value) {
 		return URLEncoder.encode(value != null ? value : "", StandardCharsets.UTF_8).replace("+", "%20");
 	}
 

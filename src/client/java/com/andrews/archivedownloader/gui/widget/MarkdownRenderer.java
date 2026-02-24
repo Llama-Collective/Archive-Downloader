@@ -30,6 +30,9 @@ import org.commonmark.node.Text;
 import org.commonmark.node.ThematicBreak;
 import org.commonmark.parser.Parser;
 
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -41,6 +44,9 @@ import java.util.regex.Pattern;
 public class MarkdownRenderer implements UiEventListener {
     private static final Pattern RAW_URL_PATTERN = Pattern.compile("(?i)\\bhttps?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+");
     private static final Pattern TOKEN_PATTERN = Pattern.compile("\\S+|\\s+");
+    private static final String DICTIONARY_PATH_PREFIX = "/dictionary/";
+    private static final String ARCHIVE_PATH_PREFIX = "/archive/";
+    private static final String DISCORD_LINK_PATH_PREFIX = "/discord-link";
 
     private static final int DEFAULT_LINK_COLOR = 0xFF66B3FF;
     private static final int DEFAULT_HOVERED_LINK_COLOR = 0xFF99C8FF;
@@ -281,12 +287,27 @@ public class MarkdownRenderer implements UiEventListener {
                         segment.width(),
                         lineHeight,
                         link,
-                        segment.style().linkTitle()
+                        buildTooltipForLink(link, segment.style().linkTitle())
                     ));
                 }
                 cursorX += segment.width();
             }
         }
+    }
+
+    private static String buildTooltipForLink(String linkUrl, String linkTitle) {
+        String url = safeTrim(linkUrl);
+        String title = safeTrim(linkTitle);
+        if (url == null) {
+            return title;
+        }
+        if (isReferenceLink(url)) {
+            return title;
+        }
+        if (title != null) {
+            return title + " (" + url + ")";
+        }
+        return url;
     }
 
     private int appendWrappedText(
@@ -753,6 +774,9 @@ public class MarkdownRenderer implements UiEventListener {
 
     private int resolveColor(TextStyle style, boolean hovered) {
         if (style.linkUrl() != null) {
+            if (isReferenceLink(style.linkUrl())) {
+                return textColor;
+            }
             return hovered ? hoveredLinkColor : linkColor;
         }
         if (style.code()) {
@@ -791,6 +815,59 @@ public class MarkdownRenderer implements UiEventListener {
         }
         float scale = headingScaleForLevel(style != null ? style.headingLevel() : 0);
         return (int) Math.ceil(font.width(text) * scale);
+    }
+
+    private static boolean isReferenceLink(String linkUrl) {
+        String path = extractPath(linkUrl);
+        if (!path.isEmpty() && (path.startsWith(DICTIONARY_PATH_PREFIX) || path.startsWith(DISCORD_LINK_PATH_PREFIX))) {
+            return true;
+        }
+        return !extractPostIdFromLink(linkUrl).isEmpty();
+    }
+
+    private static String extractPostIdFromLink(String link) {
+        String path = extractPath(link);
+        if (path.isEmpty() || !path.startsWith(ARCHIVE_PATH_PREFIX)) {
+            return "";
+        }
+        String segment = path.substring(ARCHIVE_PATH_PREFIX.length());
+        if (segment.isEmpty()) {
+            return "";
+        }
+        int slash = segment.indexOf('/');
+        if (slash >= 0) {
+            segment = segment.substring(0, slash);
+        }
+        return URLDecoder.decode(segment, StandardCharsets.UTF_8).trim();
+    }
+
+    private static String extractPath(String link) {
+        String trimmed = link != null ? link.trim() : "";
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+
+        if (trimmed.startsWith("/")) {
+            int query = trimmed.indexOf('?');
+            int hash = trimmed.indexOf('#');
+            int cut = -1;
+            if (query >= 0 && hash >= 0) {
+                cut = Math.min(query, hash);
+            } else if (query >= 0) {
+                cut = query;
+            } else if (hash >= 0) {
+                cut = hash;
+            }
+            return cut >= 0 ? trimmed.substring(0, cut) : trimmed;
+        }
+
+        try {
+            URI uri = URI.create(trimmed);
+            String path = uri.getPath();
+            return path != null ? path : "";
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private static String collectText(Node node) {

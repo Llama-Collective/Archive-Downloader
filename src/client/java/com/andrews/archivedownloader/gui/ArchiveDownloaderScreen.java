@@ -3,6 +3,9 @@ package com.andrews.archivedownloader.gui;
 import com.andrews.archivedownloader.ArchiveDownloader;
 import net.fabricmc.loader.api.FabricLoader;
 
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.List;
 import java.util.ArrayList;
@@ -47,6 +50,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private static final int SERVER_DROPDOWN_ITEM_HEIGHT = 18;
     private static final String DISCORD_INVITE_URL = "https://discord.gg/hztJMTsx2m";
     private static final String SUBMISSIONS_URL = "https://discord.com/channels/1375556143186837695/1375575317007040654";
+    private static final String INTERNAL_DISCORD_LINK_PATH_PREFIX = "/discord-link";
     private static boolean updatePopupShownThisSession = false;
     private static String sessionSearchQuery = "";
     private static String sessionSelectedChannelPath = null;
@@ -1790,26 +1794,101 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         if (url == null || url.isBlank()) {
             return;
         }
+        DiscordLinkRequest request = parseDiscordLinkRequest(url);
+        String targetUrl = request != null ? request.targetUrl() : url;
+        if (targetUrl == null || targetUrl.isBlank()) {
+            return;
+        }
         ServerEntry server = getActiveServer();
-        String inviteUrl = getDiscordInviteUrlForServer();
-        String serverName = server != null && server.name() != null ? server.name() : "this";
-        if (DownloadSettings.getInstance().hasJoinedDiscord(server)) {
-            openUrlSafe(url);
+        String defaultInviteUrl = getDiscordInviteUrlForServer();
+        String inviteUrl = request != null && request.joinUrl() != null && !request.joinUrl().isBlank()
+            ? request.joinUrl()
+            : defaultInviteUrl;
+        String defaultServerName = server != null && server.name() != null ? server.name() : "this";
+        String serverName = request != null && request.serverName() != null && !request.serverName().isBlank()
+            ? request.serverName()
+            : defaultServerName;
+        boolean hasCustomJoinTarget = request != null && request.joinUrl() != null && !request.joinUrl().isBlank();
+        if (!hasCustomJoinTarget && DownloadSettings.getInstance().hasJoinedDiscord(server)) {
+            openUrlSafe(targetUrl);
             return;
         }
 
-        pendingDiscordUrl = url;
+        pendingDiscordUrl = targetUrl;
         String message = "These links live in the " + serverName + " Discord. Please join before continuing.";
         discordPopup = new DiscordJoinPopup(
                 "Join " + serverName + " Discord?",
                 message,
                 () -> {
-                    DownloadSettings.getInstance().setJoinedDiscord(server, true);
+                    if (!hasCustomJoinTarget) {
+                        DownloadSettings.getInstance().setJoinedDiscord(server, true);
+                    }
                     openUrlSafe(pendingDiscordUrl);
                     clearDiscordPopup();
                 },
                 () -> openUrlSafe(inviteUrl),
                 this::clearDiscordPopup);
+    }
+
+    private DiscordLinkRequest parseDiscordLinkRequest(String rawLink) {
+        String trimmed = rawLink != null ? rawLink.trim() : "";
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String path;
+        String query;
+        if (trimmed.startsWith("/")) {
+            int queryStart = trimmed.indexOf('?');
+            path = queryStart >= 0 ? trimmed.substring(0, queryStart) : trimmed;
+            if (queryStart >= 0) {
+                query = trimmed.substring(queryStart + 1);
+            } else {
+                query = "";
+            }
+            int hash = query.indexOf('#');
+            if (hash >= 0) {
+                query = query.substring(0, hash);
+            }
+        } else {
+            try {
+                URI uri = URI.create(trimmed);
+                path = uri.getPath() != null ? uri.getPath() : "";
+                query = uri.getRawQuery() != null ? uri.getRawQuery() : "";
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        if (!path.startsWith(INTERNAL_DISCORD_LINK_PATH_PREFIX)) {
+            return null;
+        }
+        String targetUrl = extractQueryValue(query, "url");
+        if (targetUrl.isBlank()) {
+            return null;
+        }
+        String joinUrl = extractQueryValue(query, "join");
+        String serverName = extractQueryValue(query, "server");
+        return new DiscordLinkRequest(targetUrl, joinUrl, serverName);
+    }
+
+    private static String extractQueryValue(String query, String keyToFind) {
+        if (query == null || query.isBlank() || keyToFind == null || keyToFind.isBlank()) {
+            return "";
+        }
+        String[] pairs = query.split("&");
+        for (String pair : pairs) {
+            if (pair == null || pair.isBlank()) {
+                continue;
+            }
+            int equalsIndex = pair.indexOf('=');
+            String rawKey = equalsIndex >= 0 ? pair.substring(0, equalsIndex) : pair;
+            String rawValue = equalsIndex >= 0 ? pair.substring(equalsIndex + 1) : "";
+            String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8).trim();
+            if (!keyToFind.equalsIgnoreCase(key)) {
+                continue;
+            }
+            return URLDecoder.decode(rawValue, StandardCharsets.UTF_8).trim();
+        }
+        return "";
     }
 
     private void openUrlSafe(String url) {
@@ -1837,5 +1916,8 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             apiTokenPopup.dismiss();
         }
         apiTokenPopup = null;
+    }
+
+    private record DiscordLinkRequest(String targetUrl, String joinUrl, String serverName) {
     }
 }

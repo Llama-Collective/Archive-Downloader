@@ -43,7 +43,8 @@ import java.util.function.Consumer;
 public class PostDetailPanel implements UiRenderable, UiEventListener {
     private static final int MAX_IMAGE_SIZE = 120;
     private static final String DICTIONARY_PATH_PREFIX = "/dictionary/";
-    private static final String ARCHIVE_PATH_PREFIX = "/archives/";
+    private static final String ARCHIVE_PATH_PREFIX = "/archive/";
+    private static final String DISCORD_LINK_PATH_PREFIX = "/discord-link";
     private static final int TOOLTIP_PADDING = 6;
     private static final int TOOLTIP_MAX_WIDTH = 260;
 
@@ -501,16 +502,8 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         }
         String normalizedBase = normalizeWebsiteBase(websiteBase);
         String slug = buildEntrySlug(postInfo.code(), postInfo.title());
-        String url;
-        if (slug == null || slug.isBlank()) {
-            String id = getCurrentPostId();
-            if (id == null || id.isBlank()) {
-                return;
-            }
-            url = normalizedBase + "/?id=" + id;
-        } else {
-            url = normalizedBase + "/archives/" + slug + "/";
-        }
+        String url = normalizedBase + "/archives/" + slug + "/";
+        
         try {
             UiPlatform.openUri(url);
         } catch (Exception e) {
@@ -534,6 +527,18 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             return;
         }
 
+        if (isInternalDiscordLink(target)) {
+            if (discordLinkOpener != null) {
+                discordLinkOpener.accept(target);
+                return;
+            }
+            String fallbackUrl = extractDiscordMessageUrlFromInternalLink(target);
+            if (!fallbackUrl.isEmpty()) {
+                openExternalLink(fallbackUrl);
+            }
+            return;
+        }
+
         if (target.startsWith("/")) {
             String websiteUrl = toAbsoluteWebsiteUrl(target);
             if (websiteUrl.isEmpty()) {
@@ -552,12 +557,11 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
 
     private boolean openPostFromLink(String linkUrl) {
         String postId = extractPostIdFromLink(linkUrl);
-        String postSlug = extractArchiveSlugFromLink(linkUrl);
-        if (postId.isEmpty() && postSlug.isEmpty()) {
+        if (postId.isEmpty()) {
             return false;
         }
 
-        ArchiveNetworkManager.findPostSummary(server, postId, postSlug)
+        ArchiveNetworkManager.findPostSummary(server, postId, "")
             .thenAccept(summary -> client.execute(() -> {
                 if (summary == null) {
                     return;
@@ -641,61 +645,45 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             || lower.startsWith("http://discordapp.com/");
     }
 
+    private static boolean isInternalDiscordLink(String link) {
+        String path = extractPath(link);
+        return !path.isEmpty() && path.startsWith(DISCORD_LINK_PATH_PREFIX);
+    }
+
     private static String extractDictionaryIdFromLink(String link) {
         String path = extractPath(link);
         if (path.isEmpty() || !path.startsWith(DICTIONARY_PATH_PREFIX)) {
             return "";
         }
-        String slug = path.substring(DICTIONARY_PATH_PREFIX.length());
-        if (slug.isEmpty()) {
+        String segment = path.substring(DICTIONARY_PATH_PREFIX.length());
+        if (segment.isEmpty()) {
             return "";
         }
-        int slash = slug.indexOf('/');
+        int slash = segment.indexOf('/');
         if (slash >= 0) {
-            slug = slug.substring(0, slash);
+            segment = segment.substring(0, slash);
         }
-        String decodedSlug = URLDecoder.decode(slug, StandardCharsets.UTF_8);
-        int dash = decodedSlug.indexOf('-');
-        String id = dash >= 0 ? decodedSlug.substring(0, dash) : decodedSlug;
-        return id.trim();
+        String decoded = URLDecoder.decode(segment, StandardCharsets.UTF_8).trim();
+        if (decoded.isEmpty()) {
+            return "";
+        }
+        return decoded;
     }
 
     private static String extractPostIdFromLink(String link) {
-        String query = extractQuery(link);
-        if (query.isEmpty()) {
-            return "";
-        }
-        String[] pairs = query.split("&");
-        for (String pair : pairs) {
-            if (pair == null || pair.isBlank()) {
-                continue;
-            }
-            int equalsIndex = pair.indexOf('=');
-            String rawKey = equalsIndex >= 0 ? pair.substring(0, equalsIndex) : pair;
-            String rawValue = equalsIndex >= 0 ? pair.substring(equalsIndex + 1) : "";
-            String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8).trim();
-            if (!"id".equalsIgnoreCase(key)) {
-                continue;
-            }
-            return URLDecoder.decode(rawValue, StandardCharsets.UTF_8).trim();
-        }
-        return "";
-    }
-
-    private static String extractArchiveSlugFromLink(String link) {
         String path = extractPath(link);
         if (path.isEmpty() || !path.startsWith(ARCHIVE_PATH_PREFIX)) {
             return "";
         }
-        String slug = path.substring(ARCHIVE_PATH_PREFIX.length());
-        if (slug.isEmpty()) {
+        String segment = path.substring(ARCHIVE_PATH_PREFIX.length());
+        if (segment.isEmpty()) {
             return "";
         }
-        int slash = slug.indexOf('/');
+        int slash = segment.indexOf('/');
         if (slash >= 0) {
-            slug = slug.substring(0, slash);
+            segment = segment.substring(0, slash);
         }
-        return URLDecoder.decode(slug, StandardCharsets.UTF_8).trim();
+        return URLDecoder.decode(segment, StandardCharsets.UTF_8).trim();
     }
 
     private static String extractPath(String link) {
@@ -725,6 +713,32 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         } catch (Exception ignored) {
             return "";
         }
+    }
+
+    private static String extractDiscordMessageUrlFromInternalLink(String link) {
+        String path = extractPath(link);
+        if (path.isEmpty() || !path.startsWith(DISCORD_LINK_PATH_PREFIX)) {
+            return "";
+        }
+        String query = extractQuery(link);
+        if (query.isEmpty()) {
+            return "";
+        }
+        String[] pairs = query.split("&");
+        for (String pair : pairs) {
+            if (pair == null || pair.isBlank()) {
+                continue;
+            }
+            int equalsIndex = pair.indexOf('=');
+            String rawKey = equalsIndex >= 0 ? pair.substring(0, equalsIndex) : pair;
+            String rawValue = equalsIndex >= 0 ? pair.substring(equalsIndex + 1) : "";
+            String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8).trim();
+            if (!"url".equalsIgnoreCase(key)) {
+                continue;
+            }
+            return URLDecoder.decode(rawValue, StandardCharsets.UTF_8).trim();
+        }
+        return "";
     }
 
     private static String extractQuery(String link) {
@@ -794,7 +808,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
     }
 
     private static boolean isPostLink(String linkUrl) {
-        return !extractPostIdFromLink(linkUrl).isEmpty() || !extractArchiveSlugFromLink(linkUrl).isEmpty();
+        return !extractPostIdFromLink(linkUrl).isEmpty();
     }
 
     private static String stripDictionaryTooltipPrefix(String tooltip) {
@@ -817,13 +831,12 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         }
 
         String postId = extractPostIdFromLink(target);
-        String postSlug = extractArchiveSlugFromLink(target);
-        if (postId.isEmpty() && postSlug.isEmpty()) {
+        if (postId.isEmpty()) {
             return;
         }
 
         pendingPostTooltipLinks.add(target);
-        ArchiveNetworkManager.findPostSummary(server, postId, postSlug)
+        ArchiveNetworkManager.findPostSummary(server, postId, "")
             .thenAccept(summary -> client.execute(() -> {
                 pendingPostTooltipLinks.remove(target);
                 if (summary == null) {
@@ -918,9 +931,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         hoveredDictionaryTooltip = null;
 
         RenderUtil.fillRect(renderContext, x, y, x + width, y + height, UITheme.Colors.PANEL_BG_SECONDARY);
-
-        RenderUtil.fillRect(renderContext, x, y, x + 1, y + height, UITheme.Colors.BUTTON_BORDER);
-
+        
         if (postInfo == null) {
             String text = "Select a schematic to view details";
             int textWidth = client.font().width(text);
@@ -1100,6 +1111,16 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
                     requestPostTooltipLookup(hoveredLink);
                 } else {
                     hoveredDictionaryTooltip = postTooltip;
+                    tooltipMouseX = mouseX;
+                    tooltipMouseY = mouseY;
+                }
+            } else if (hoveredLink != null && !hoveredLink.isBlank()) {
+                String linkTooltip = rawHoveredTooltip != null ? rawHoveredTooltip.trim() : "";
+                if (linkTooltip.isEmpty()) {
+                    linkTooltip = hoveredLink.trim();
+                }
+                if (!linkTooltip.isEmpty()) {
+                    hoveredDictionaryTooltip = linkTooltip;
                     tooltipMouseX = mouseX;
                     tooltipMouseY = mouseY;
                 }

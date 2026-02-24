@@ -3,7 +3,6 @@ package com.andrews.archivedownloader.gui.widget;
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.models.ArchiveDictionaryEntry;
 import com.andrews.archivedownloader.models.ArchiveDictionaryReferencedPost;
-import com.andrews.archivedownloader.models.ArchiveDictionaryReference;
 import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import com.andrews.archivedownloader.wrapper.gui.UiEventListener;
@@ -34,7 +33,7 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
     private static final int MIN_POPUP_HEIGHT = 260;
     private static final int OUTER_PADDING = 12;
     private static final String DICTIONARY_PATH_PREFIX = "/dictionary/";
-    private static final String ARCHIVE_PATH_PREFIX = "/archives/";
+    private static final String ARCHIVE_PATH_PREFIX = "/archive/";
     private static final int TOOLTIP_PADDING = 6;
     private static final int TOOLTIP_MAX_WIDTH = 260;
     private static final int REFERENCED_BY_SECTION_SPACING = 10;
@@ -272,6 +271,16 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
             }
             tooltipMouseX = mouseX;
             tooltipMouseY = mouseY;
+        } else if (hoveredLink != null && !hoveredLink.isBlank()) {
+            String linkTooltip = rawHoveredTooltip != null ? rawHoveredTooltip.trim() : "";
+            if (linkTooltip.isEmpty()) {
+                linkTooltip = hoveredLink.trim();
+            }
+            if (!linkTooltip.isEmpty()) {
+                hoveredDictionaryTooltip = linkTooltip;
+                tooltipMouseX = mouseX;
+                tooltipMouseY = mouseY;
+            }
         }
         renderReferencedBySection(context, font, mouseX, mouseY, textWidth, rawHeight, markdownHeight, scrollPixels, markdownStartY);
 
@@ -515,7 +524,7 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
         if (id.isEmpty()) {
             return "";
         }
-        return "/?id=" + id;
+        return "/archive/" + encodePathSegment(id);
     }
 
     private void updateLayout(int screenWidth, int screenHeight) {
@@ -644,33 +653,23 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
     }
 
     private static boolean isPostLink(String linkUrl) {
-        String path = extractPath(linkUrl);
-        if (!path.isEmpty() && path.startsWith(ARCHIVE_PATH_PREFIX)) {
-            return true;
-        }
         return !extractPostIdFromLink(linkUrl).isEmpty();
     }
 
     private static String extractPostIdFromLink(String link) {
-        String query = extractQuery(link);
-        if (query.isEmpty()) {
+        String path = extractPath(link);
+        if (path.isEmpty() || !path.startsWith(ARCHIVE_PATH_PREFIX)) {
             return "";
         }
-        String[] pairs = query.split("&");
-        for (String pair : pairs) {
-            if (pair == null || pair.isBlank()) {
-                continue;
-            }
-            int equalsIndex = pair.indexOf('=');
-            String rawKey = equalsIndex >= 0 ? pair.substring(0, equalsIndex) : pair;
-            String rawValue = equalsIndex >= 0 ? pair.substring(equalsIndex + 1) : "";
-            String key = URLDecoder.decode(rawKey, StandardCharsets.UTF_8).trim();
-            if (!"id".equalsIgnoreCase(key)) {
-                continue;
-            }
-            return URLDecoder.decode(rawValue, StandardCharsets.UTF_8).trim();
+        String segment = path.substring(ARCHIVE_PATH_PREFIX.length());
+        if (segment.isEmpty()) {
+            return "";
         }
-        return "";
+        int slash = segment.indexOf('/');
+        if (slash >= 0) {
+            segment = segment.substring(0, slash);
+        }
+        return URLDecoder.decode(segment, StandardCharsets.UTF_8).trim();
     }
 
     private static String extractPath(String link) {
@@ -697,31 +696,6 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
             URI uri = URI.create(trimmed);
             String path = uri.getPath();
             return path != null ? path : "";
-        } catch (Exception ignored) {
-            return "";
-        }
-    }
-
-    private static String extractQuery(String link) {
-        String trimmed = link != null ? link.trim() : "";
-        if (trimmed.isEmpty()) {
-            return "";
-        }
-
-        if (trimmed.startsWith("/")) {
-            int queryStart = trimmed.indexOf('?');
-            if (queryStart < 0) {
-                return "";
-            }
-            String queryPart = trimmed.substring(queryStart + 1);
-            int hash = queryPart.indexOf('#');
-            return hash >= 0 ? queryPart.substring(0, hash) : queryPart;
-        }
-
-        try {
-            URI uri = URI.create(trimmed);
-            String query = uri.getRawQuery();
-            return query != null ? query : "";
         } catch (Exception ignored) {
             return "";
         }
