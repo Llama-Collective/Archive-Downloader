@@ -45,6 +45,8 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
     private static final String DICTIONARY_PATH_PREFIX = "/dictionary/";
     private static final String ARCHIVE_PATH_PREFIX = "/archive/";
     private static final String DISCORD_LINK_PATH_PREFIX = "/discord-link";
+    private static final int SECTION_HEADER_COLOR = 0xFFE2E2E2;
+    private static final float SECTION_HEADER_SCALE = 1.18f;
     private static final int TOOLTIP_PADDING = 6;
     private static final int TOOLTIP_MAX_WIDTH = 260;
 
@@ -1163,10 +1165,16 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         }
 
         if (attachmentManager.hasAttachments()) {
-            RenderUtil.drawString(renderContext, client.uiFont(), "Attachments:", x + UITheme.Dimensions.PADDING, currentY,
-                    UITheme.Colors.TEXT_SUBTITLE);
-            currentY += 12;
-            contentHeight += 12;
+            RenderUtil.drawScaledString(
+                    renderContext,
+                    "Attachments:",
+                    x + UITheme.Dimensions.PADDING,
+                    currentY,
+                    SECTION_HEADER_COLOR,
+                    SECTION_HEADER_SCALE);
+            int attachmentHeaderHeight = Math.max(12, (int) Math.ceil(client.font().lineHeight * SECTION_HEADER_SCALE) + 2);
+            currentY += attachmentHeaderHeight;
+            contentHeight += attachmentHeaderHeight;
 
             int rowWidth = width - UITheme.Dimensions.PADDING * 2;
             int rowX = x + UITheme.Dimensions.PADDING;

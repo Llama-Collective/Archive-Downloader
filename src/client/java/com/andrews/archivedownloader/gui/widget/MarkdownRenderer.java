@@ -57,6 +57,8 @@ public class MarkdownRenderer implements UiEventListener {
     private final Parser parser = Parser.builder().build();
     private final List<LayoutToken> tokens = new ArrayList<>();
     private final List<RenderedLine> renderedLines = new ArrayList<>();
+    private final List<Integer> lineOffsets = new ArrayList<>();
+    private final List<Integer> lineHeights = new ArrayList<>();
     private final List<LinkHitbox> linkHitboxes = new ArrayList<>();
     private final TextStyle baseStyle = new TextStyle(null, null, 0, false, false, "");
 
@@ -80,7 +82,7 @@ public class MarkdownRenderer implements UiEventListener {
     private int hoveredLinkColor = DEFAULT_HOVERED_LINK_COLOR;
 
     private int cachedLayoutWidth = -1;
-    private int cachedLineHeight = -1;
+    private int cachedBaseLineHeight = -1;
     private int requiredHeight = 0;
     private String hoveredLink = null;
     private String hoveredLinkTooltip = null;
@@ -151,13 +153,13 @@ public class MarkdownRenderer implements UiEventListener {
         hoveredLink = hoveredHitbox != null ? hoveredHitbox.url() : null;
         hoveredLinkTooltip = hoveredHitbox != null ? hoveredHitbox.title() : null;
 
-        int baseLineHeight = Math.max(font.lineHeight(), 1) + 1;
-        int lineHeight = cachedLineHeight > 0 ? cachedLineHeight : Math.max(baseLineHeight, (int) Math.ceil(baseLineHeight * MAX_HEADING_SCALE));
         int bottom = y + height;
         RenderUtil.enableScissor(context, x, y, x + width, bottom);
         for (int lineIndex = 0; lineIndex < renderedLines.size(); lineIndex++) {
             RenderedLine line = renderedLines.get(lineIndex);
-            int drawY = y + lineIndex * lineHeight - verticalOffset;
+            int lineTop = lineIndex < lineOffsets.size() ? lineOffsets.get(lineIndex) : 0;
+            int lineHeight = lineIndex < lineHeights.size() ? lineHeights.get(lineIndex) : (Math.max(font.lineHeight(), 1) + 1);
+            int drawY = y + lineTop - verticalOffset;
             if (drawY > bottom || drawY + lineHeight < y) {
                 continue;
             }
@@ -205,17 +207,16 @@ public class MarkdownRenderer implements UiEventListener {
     private void ensureLayout(UiFont font) {
         int layoutWidth = Math.max(1, width);
         int baseLineHeight = Math.max(font.lineHeight(), 1) + 1;
-        int lineHeight = Math.max(baseLineHeight, (int) Math.ceil(baseLineHeight * MAX_HEADING_SCALE));
-        if (!layoutDirty && cachedLayoutWidth == layoutWidth && cachedLineHeight == lineHeight) {
+        if (!layoutDirty && cachedLayoutWidth == layoutWidth && cachedBaseLineHeight == baseLineHeight) {
             return;
         }
 
         ensureParsed();
         rebuildTokens();
-        rebuildLayout(font, layoutWidth, lineHeight);
+        rebuildLayout(font, layoutWidth, baseLineHeight);
 
         cachedLayoutWidth = layoutWidth;
-        cachedLineHeight = lineHeight;
+        cachedBaseLineHeight = baseLineHeight;
         layoutDirty = false;
     }
 
@@ -238,8 +239,10 @@ public class MarkdownRenderer implements UiEventListener {
         }
     }
 
-    private void rebuildLayout(UiFont font, int maxWidth, int lineHeight) {
+    private void rebuildLayout(UiFont font, int maxWidth, int baseLineHeight) {
         renderedLines.clear();
+        lineOffsets.clear();
+        lineHeights.clear();
         linkHitboxes.clear();
 
         List<RenderedSegment> currentLine = new ArrayList<>();
@@ -269,21 +272,80 @@ public class MarkdownRenderer implements UiEventListener {
             renderedLines.remove(renderedLines.size() - 1);
         }
 
-        requiredHeight = Math.max(1, renderedLines.size()) * lineHeight;
-        rebuildLinkHitboxes(lineHeight);
+        int runningOffset = 0;
+        for (int i = 0; i < renderedLines.size(); i++) {
+            RenderedLine line = renderedLines.get(i);
+            boolean headingLine = isHeadingLine(line);
+            boolean previousHeading = i > 0 && isHeadingLine(renderedLines.get(i - 1));
+            boolean nextHeading = i + 1 < renderedLines.size() && isHeadingLine(renderedLines.get(i + 1));
+
+            if (headingLine && !previousHeading) {
+                runningOffset += headingTopPadding(baseLineHeight);
+            }
+
+            lineOffsets.add(runningOffset);
+            int lineHeight = measureLineHeight(baseLineHeight, line);
+            lineHeights.add(lineHeight);
+            runningOffset += lineHeight;
+
+            if (headingLine && !nextHeading) {
+                runningOffset += headingBottomPadding(baseLineHeight);
+            }
+        }
+
+        requiredHeight = Math.max(1, runningOffset);
+        rebuildLinkHitboxes();
     }
 
-    private void rebuildLinkHitboxes(int lineHeight) {
+    private int measureLineHeight(int baseLineHeight, RenderedLine line) {
+        float maxScale = 1.0f;
+        if (line != null && line.segments() != null) {
+            for (RenderedSegment segment : line.segments()) {
+                if (segment == null) {
+                    continue;
+                }
+                maxScale = Math.max(maxScale, textScaleForStyle(segment.style()));
+            }
+        }
+        return Math.max(baseLineHeight, (int) Math.ceil(baseLineHeight * maxScale));
+    }
+
+    private static int headingTopPadding(int baseLineHeight) {
+        return Math.max(0, baseLineHeight);
+    }
+
+    private static int headingBottomPadding(int baseLineHeight) {
+        return Math.max(1, Math.round(baseLineHeight * 0.5f));
+    }
+
+    private static boolean isHeadingLine(RenderedLine line) {
+        if (line == null || line.segments() == null) {
+            return false;
+        }
+        for (RenderedSegment segment : line.segments()) {
+            if (segment == null || segment.style() == null) {
+                continue;
+            }
+            if (segment.style().headingLevel() > 0 && segment.width() > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void rebuildLinkHitboxes() {
         linkHitboxes.clear();
         for (int lineIndex = 0; lineIndex < renderedLines.size(); lineIndex++) {
             RenderedLine line = renderedLines.get(lineIndex);
+            int lineTop = lineIndex < lineOffsets.size() ? lineOffsets.get(lineIndex) : 0;
+            int lineHeight = lineIndex < lineHeights.size() ? lineHeights.get(lineIndex) : 0;
             int cursorX = 0;
             for (RenderedSegment segment : line.segments()) {
                 String link = segment.style().linkUrl();
                 if (link != null && !link.isBlank() && segment.width() > 0) {
                     linkHitboxes.add(new LinkHitbox(
                         cursorX,
-                        lineIndex * lineHeight,
+                        lineTop,
                         segment.width(),
                         lineHeight,
                         link,
