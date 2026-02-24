@@ -1,3 +1,6 @@
+## 1.0.15
+- Removed font weight for headings, as it reduced readability
+
 ## 1.0.14
 - Added real markdown support! Posts are now formatted much more accurately, and support things like links, lists, and more.
 - Added dictionary entry tooltips! Hovering over a dictionary entry reference will now show the definition in a tooltip, and clicking it will open the definition in a popup.
