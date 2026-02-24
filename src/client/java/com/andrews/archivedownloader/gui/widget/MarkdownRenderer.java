@@ -52,7 +52,6 @@ public class MarkdownRenderer implements UiEventListener {
     private static final int DEFAULT_HOVERED_LINK_COLOR = 0xFF99C8FF;
     private static final int DEFAULT_CODE_COLOR = 0xFFDCDCDC;
     private static final int DEFAULT_HEADING_COLOR = 0xFFE2E2E2;
-    private static final float MAX_HEADING_SCALE = 1.45f;
 
     private final Parser parser = Parser.builder().build();
     private final List<LayoutToken> tokens = new ArrayList<>();
@@ -74,8 +73,8 @@ public class MarkdownRenderer implements UiEventListener {
     private int width;
     private int height;
 
-    private int textColor = UITheme.Colors.TEXT_PRIMARY;
-    private int headingColor = DEFAULT_HEADING_COLOR;
+    private int textColor = DEFAULT_HEADING_COLOR;
+    private int headingColor = UITheme.Colors.TEXT_PRIMARY;
     private int quoteColor = UITheme.Colors.TEXT_SUBTITLE;
     private int codeColor = DEFAULT_CODE_COLOR;
     private int linkColor = DEFAULT_LINK_COLOR;
@@ -176,7 +175,7 @@ public class MarkdownRenderer implements UiEventListener {
                 if (Math.abs(scale - 1.0f) > 0.001f) {
                     RenderUtil.drawScaledString(context, segment.text(), drawX, drawY, color, scale);
                     // Simulate heavier weight for headings.
-                    RenderUtil.drawScaledString(context, segment.text(), drawX + 1, drawY, color, scale);
+                    // RenderUtil.drawScaledString(context, segment.text(), drawX + 1, drawY, color, scale);
                 } else {
                     RenderUtil.drawString(context, font, segment.text(), drawX, drawY, color);
                 }
