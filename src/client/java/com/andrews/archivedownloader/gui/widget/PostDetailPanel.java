@@ -45,7 +45,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
     private static final String DICTIONARY_PATH_PREFIX = "/dictionary/";
     private static final String ARCHIVE_PATH_PREFIX = "/archive/";
     private static final String DISCORD_LINK_PATH_PREFIX = "/discord-link";
-    private static final int SECTION_HEADER_COLOR = 0xFFE2E2E2;
+    private static final int SECTION_HEADER_COLOR = UITheme.Colors.TEXT_PRIMARY;
     private static final float SECTION_HEADER_SCALE = 1.18f;
     private static final int TOOLTIP_PADDING = 6;
     private static final int TOOLTIP_MAX_WIDTH = 260;
