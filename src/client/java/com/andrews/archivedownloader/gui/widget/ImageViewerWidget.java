@@ -133,7 +133,6 @@ public class ImageViewerWidget {
     }
 
     public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
-        var graphics = context.graphics();
         RenderUtil.fillRect(context, 0, 0, screenWidth, screenHeight, UITheme.Colors.OVERLAY_BG);
 
         renderImage(context);
@@ -143,7 +142,7 @@ public class ImageViewerWidget {
         }
 
         if (closeButton != null) {
-            closeButton.render(graphics, mouseX, mouseY, delta);
+            closeButton.render(context, mouseX, mouseY, delta);
         }
     }
     private void renderImage(UiRenderContext context) {
@@ -170,7 +169,6 @@ public class ImageViewerWidget {
     }
 
     private void renderNavigation(UiRenderContext context, int mouseX, int mouseY, float delta) {
-        var graphics = context.graphics();
         String pageText = String.format("%d / %d", currentImageIndex + 1, totalImages);
         int textWidth = client.font().width(pageText);
         int textX = (screenWidth - textWidth) / 2;
@@ -186,10 +184,10 @@ public class ImageViewerWidget {
         RenderUtil.drawString(context, client.uiFont(), pageText, textX, textY, UITheme.Colors.TEXT_SUBTITLE);
 
         if (prevButton != null) {
-            prevButton.render(graphics, mouseX, mouseY, delta);
+            prevButton.render(context, mouseX, mouseY, delta);
         }
         if (nextButton != null) {
-            nextButton.render(graphics, mouseX, mouseY, delta);
+            nextButton.render(context, mouseX, mouseY, delta);
         }
     }
 

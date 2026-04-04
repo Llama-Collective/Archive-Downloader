@@ -4,7 +4,13 @@ import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+
+//? >=26.1 {
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+//? } else {
+// import net.minecraft.client.gui.GuiGraphics;
+//? }
+
 import net.minecraft.client.gui.components.toasts.Toast;
 import net.minecraft.client.gui.components.toasts.ToastManager;
 import net.minecraft.network.chat.FormattedText;
@@ -39,22 +45,47 @@ public class UiBasicToast implements Toast {
         this.computedHeight = Math.max(MIN_HEIGHT, 14 + lines * 9);
     }
 
+    //? >=26.1 {
     @Override
-    public void render(GuiGraphics context, Font textRenderer, long startTime) {
+    public void extractRenderState(GuiGraphicsExtractor context, Font textRenderer, long startTime) {
+        renderToast(UiRenderContext.from(context), textRenderer, startTime);
+    }
+    //? } else {
+    // @Override
+    // public void render(GuiGraphics context, Font textRenderer, long startTime) {
+    //     renderToast(UiRenderContext.from(context), textRenderer, startTime);
+    // }
+    //?}
+
+
+    public void renderToast(UiRenderContext contextWrapper, Font textRenderer, long startTime) {
         int height = height();
         int bgColor = 0xCC1E1E1E;
         int border = 0xFF3A3A3A;
+        var context = contextWrapper.graphics();
         context.fill(0, 0, WIDTH, height, bgColor);
         RenderUtil.drawBorder(UiRenderContext.from(context), 0, 0, WIDTH, height, border);
         int y = 7;
+
+        //? >=26.1 {
         for (int i = 0; i < wrappedTitle.size(); i++) {
-            context.drawString(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFFFF, false);
+            context.text(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFFFF, false);
             y += 9;
         }
         for (var line : wrappedBody) {
-            context.drawString(textRenderer, line, 12, y, 0xFFAAAAAA, false);
+            context.text(textRenderer, line, 12, y, 0xFFAAAAAA, false);
             y += 9;
         }
+        //? } else {
+        // for (int i = 0; i < wrappedTitle.size(); i++) {
+        //     context.drawString(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFFFF, false);
+        //     y += 9;
+        // }
+        // for (var line : wrappedBody) {
+        //     context.drawString(textRenderer, line, 12, y, 0xFFAAAAAA, false);
+        //     y += 9;
+        // }
+        //? }
     }
 
     @Override

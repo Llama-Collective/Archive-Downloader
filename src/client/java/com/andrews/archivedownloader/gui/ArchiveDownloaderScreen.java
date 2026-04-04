@@ -800,7 +800,6 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
     @Override
     protected void renderScreen(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
-        var context = renderContext.graphics();
         int leftPanelWidth = showChannelPanel ? SIDEBAR_WIDTH : 0;
         super.renderScreen(renderContext, mouseX, mouseY, delta);
 
@@ -834,23 +833,23 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         // Header controls rendered last so they remain visible and bright even when
         // overlay dimming is active
         if (serverButton != null) {
-            serverButton.render(context, mouseX, mouseY, delta);
+            serverButton.render(renderContext, mouseX, mouseY, delta);
         }
 
         if (channelToggleButton != null) {
-            channelToggleButton.render(context, mouseX, mouseY, delta);
+            channelToggleButton.render(renderContext, mouseX, mouseY, delta);
         }
 
         if (submissionsButton != null) {
-            submissionsButton.render(context, mouseX, mouseY, delta);
+            submissionsButton.render(renderContext, mouseX, mouseY, delta);
         }
 
         if (closeButton != null) {
-            closeButton.render(context, mouseX, mouseY, delta);
+            closeButton.render(renderContext, mouseX, mouseY, delta);
         }
 
         if (searchField != null) {
-            searchField.render(context, mouseX, mouseY, delta);
+            searchField.render(renderContext, mouseX, mouseY, delta);
         }
 
         if (showServerDropdown) {

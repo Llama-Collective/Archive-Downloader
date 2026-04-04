@@ -3,7 +3,14 @@ package com.andrews.archivedownloader.wrapper.gui;
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
 import com.andrews.archivedownloader.wrapper.text.UiText;
-import net.minecraft.client.gui.GuiGraphics;
+
+//? >=26.1 {
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+//? } else {
+// import net.minecraft.client.gui.GuiGraphics;
+//? }
+
+
 import net.minecraft.client.gui.screens.Screen;
 //? >=1.21.9
  import net.minecraft.client.input.MouseButtonEvent;
@@ -37,13 +44,24 @@ public abstract class UiScreenBase extends Screen {
         return client != null && client.isCurrentScreen(this);
     }
 
+    //? >=26.1 {
     @Override
-    public final void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    public final void extractRenderState(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         renderScreen(UiRenderContext.from(context), mouseX, mouseY, delta);
     }
+    //? } else {
+    // @Override
+    // public final void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    //     renderScreen(UiRenderContext.from(context), mouseX, mouseY, delta);
+    // }
+    //? }
 
     protected void renderScreen(UiRenderContext context, int mouseX, int mouseY, float delta) {
-        super.render(context.graphics(), mouseX, mouseY, delta);
+        //? >=26.1 {
+        super.extractRenderState(context.graphics(), mouseX, mouseY, delta);
+        //? } else {
+        /*super.render(context.graphics(), mouseX, mouseY, delta);
+        *///? }
     }
 
     //? >=1.21.9 {

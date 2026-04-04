@@ -84,7 +84,6 @@ public class UpdateAvailablePopup implements UiRenderable, UiEventListener {
 
     @Override
     public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
-        var graphics = context.graphics();
         UiMinecraftClient client = UiMinecraftClient.getInstance();
         long windowHandle = client.windowHandle();
 
@@ -135,10 +134,10 @@ public class UpdateAvailablePopup implements UiRenderable, UiEventListener {
         );
 
         if (closeButton != null) {
-            closeButton.render(graphics, mouseX, mouseY, delta);
+            closeButton.render(context, mouseX, mouseY, delta);
         }
         if (openButton != null) {
-            openButton.render(graphics, mouseX, mouseY, delta);
+            openButton.render(context, mouseX, mouseY, delta);
         }
     }
 

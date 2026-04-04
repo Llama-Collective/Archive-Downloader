@@ -1,6 +1,6 @@
 plugins {
-    id("net.fabricmc.fabric-loom-remap")
-    
+    id("dev.kikugie.loom-back-compat")
+  
     id("dev.kikugie.fletching-table.fabric") version "0.1.0-alpha.22"
 
 
@@ -12,6 +12,7 @@ version = "${property("mod.version")}+${sc.current.version}"
 base.archivesName = property("mod.id") as String
 
 val requiredJava = when {
+    sc.current.parsed >= "26.1" -> JavaVersion.VERSION_25
     sc.current.parsed >= "1.20.5" -> JavaVersion.VERSION_21
     sc.current.parsed >= "1.18" -> JavaVersion.VERSION_17
     sc.current.parsed >= "1.17" -> JavaVersion.VERSION_16
@@ -33,18 +34,21 @@ repositories {
 
 dependencies {
     minecraft("com.mojang:minecraft:${sc.current.version}")
-    mappings(loom.officialMojangMappings())
+
+    loomx.applyMojangMappings()
+
     modImplementation("net.fabricmc:fabric-loader:${property("deps.fabric_loader")}")
 
     modImplementation("net.fabricmc.fabric-api:fabric-api:${property("deps.fabric_api")}")
 
-    var mcVersion = stonecutter.current.version.toString()
+
+    var mcVersion = sc.current.version;
 
     modImplementation(fletchingTable.modrinth("litematica", mcVersion))
     modImplementation(fletchingTable.modrinth("malilib", mcVersion))
     
-    if (mcVersion == "1.21.2") {
-        // No 1.21.2 version of worldedit
+    if (mcVersion == "1.21.2" || mcVersion == "26.1" || mcVersion == "26.1.1") {
+        // No 1.21.2 or 26.1 version of worldedit
     } else {
         modImplementation(fletchingTable.modrinth("worldedit", mcVersion))
     }
@@ -106,7 +110,7 @@ tasks {
     // Builds the version into a shared folder in `build/libs/${mod version}/`
     register<Copy>("buildAndCollect") {
         group = "build"
-        from(remapJar.map { it.archiveFile }, remapSourcesJar.map { it.archiveFile })
+        from(loomx.modJar.map { it.archiveFile }, loomx.modSourcesJar.map { it.archiveFile })
         into(rootProject.layout.buildDirectory.file("libs/${project.property("mod.version")}"))
         dependsOn("build")
     }
@@ -114,8 +118,8 @@ tasks {
 
 // Publishes builds to Modrinth and Curseforge with changelog from the CHANGELOG.md file
 publishMods {
-    file = tasks.remapJar.map { it.archiveFile.get() }
-    additionalFiles.from(tasks.remapSourcesJar.map { it.archiveFile.get() })
+    file = loomx.modJar.map { it.archiveFile.get() }
+    additionalFiles.from(loomx.modSourcesJar.map { it.archiveFile.get() })
     displayName = "${property("mod.name")} ${property("mod.version")} for ${property("mod.mc_title")}"
     version = property("mod.version") as String
     changelog = rootProject.file("CHANGELOG.md").readText()

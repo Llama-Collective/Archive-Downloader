@@ -242,7 +242,7 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
         closeButton.setX(contentX + textWidth - closeButton.getWidth());
         closeButton.setY(headerY);
         if (headerY + closeButton.getHeight() >= contentY && headerY <= contentY + rawHeight) {
-            closeButton.render(context.graphics(), mouseX, mouseY, delta);
+            closeButton.render(context, mouseX, mouseY, delta);
         }
         if (headerY + 12 >= contentY && headerY <= contentY + rawHeight) {
             RenderUtil.drawString(context, font, title, contentX, headerY + 1, UITheme.Colors.TEXT_PRIMARY);
@@ -294,12 +294,12 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
             if (websiteButton != null && websiteButton.active
                 && websiteButton.getY() + websiteButton.getHeight() >= contentY
                 && websiteButton.getY() <= contentY + rawHeight) {
-                websiteButton.render(context.graphics(), mouseX, mouseY, delta);
+                websiteButton.render(context, mouseX, mouseY, delta);
             }
             if (discordStatusButton != null && discordStatusButton.active
                 && discordStatusButton.getY() + discordStatusButton.getHeight() >= contentY
                 && discordStatusButton.getY() <= contentY + rawHeight) {
-                discordStatusButton.render(context.graphics(), mouseX, mouseY, delta);
+                discordStatusButton.render(context, mouseX, mouseY, delta);
             }
         }
 

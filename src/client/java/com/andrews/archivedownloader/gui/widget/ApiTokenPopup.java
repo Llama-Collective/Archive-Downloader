@@ -185,7 +185,6 @@ public class ApiTokenPopup implements UiRenderable, UiEventListener {
 
     @Override
     public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
-        var graphics = context.graphics();
         UiMinecraftClient client = UiMinecraftClient.getInstance();
         long windowHandle = client.windowHandle();
         if (windowHandle != 0L) {
@@ -239,7 +238,7 @@ public class ApiTokenPopup implements UiRenderable, UiEventListener {
         );
         RenderUtil.disableScissor(context);
 
-        tokenField.render(graphics, mouseX, mouseY, delta);
+        tokenField.render(context, mouseX, mouseY, delta);
         int statusY = tokenField.getY() + tokenField.getHeight() + 4;
         RenderUtil.enableScissor(
             context,
@@ -258,9 +257,9 @@ public class ApiTokenPopup implements UiRenderable, UiEventListener {
             statusColor
         );
         RenderUtil.disableScissor(context);
-        cancelButton.render(graphics, mouseX, mouseY, delta);
-        clearButton.render(graphics, mouseX, mouseY, delta);
-        saveButton.render(graphics, mouseX, mouseY, delta);
+        cancelButton.render(context, mouseX, mouseY, delta);
+        clearButton.render(context, mouseX, mouseY, delta);
+        saveButton.render(context, mouseX, mouseY, delta);
     }
 
     @Override

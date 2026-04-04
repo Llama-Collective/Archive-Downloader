@@ -145,7 +145,6 @@ public class DiscordJoinPopup implements UiRenderable, UiEventListener {
 
 	@Override
 	public void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
-		var graphics = context.graphics();
 		UiMinecraftClient client = UiMinecraftClient.getInstance();
 		long windowHandle = client.windowHandle();
 
@@ -212,13 +211,13 @@ public class DiscordJoinPopup implements UiRenderable, UiEventListener {
 		}
 
 		if (cancelButton != null) {
-			cancelButton.render(graphics, mouseX, mouseY, delta);
+			cancelButton.render(context, mouseX, mouseY, delta);
 		}
 		if (inviteButton != null) {
-			inviteButton.render(graphics, mouseX, mouseY, delta);
+			inviteButton.render(context, mouseX, mouseY, delta);
 		}
 		if (continueButton != null) {
-			continueButton.render(graphics, mouseX, mouseY, delta);
+			continueButton.render(context, mouseX, mouseY, delta);
 		}
 	}
 

@@ -927,7 +927,6 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
 
     @Override
     public void render(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
-        var context = renderContext.graphics();
         int renderMouseX = mouseX;
         int renderMouseY = mouseY;
         hoveredDictionaryTooltip = null;
@@ -949,10 +948,10 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
 
         ensureHeaderNavButtons(currentY);
         if (headerBackButton != null) {
-            headerBackButton.render(context, renderMouseX, renderMouseY, delta);
+            headerBackButton.render(renderContext, renderMouseX, renderMouseY, delta);
         }
         if (headerCloseButton != null) {
-            headerCloseButton.render(context, renderMouseX, renderMouseY, delta);
+            headerCloseButton.render(renderContext, renderMouseX, renderMouseY, delta);
         }
         currentY += UITheme.Dimensions.BUTTON_HEIGHT + 10;
         contentHeight += UITheme.Dimensions.BUTTON_HEIGHT + 10;
@@ -1024,13 +1023,13 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             updateCarouselButtons(btnY);
 
             if (prevImageButton != null) {
-                prevImageButton.render(context, renderMouseX, renderMouseY, delta);
+                prevImageButton.render(renderContext, renderMouseX, renderMouseY, delta);
             }
 
             RenderUtil.drawString(renderContext, client.uiFont(), indicator, indicatorX, btnY + 4, UITheme.Colors.TEXT_SUBTITLE);
 
             if (nextImageButton != null) {
-                nextImageButton.render(context, renderMouseX, renderMouseY, delta);
+                nextImageButton.render(renderContext, renderMouseX, renderMouseY, delta);
             }
 
             currentY += 16 + UITheme.Dimensions.PADDING;
@@ -1226,7 +1225,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             int buttonX = x + UITheme.Dimensions.PADDING;
             int buttonY = currentY + 4;
             ensureWebsiteButton(buttonWidth, buttonX, buttonY);
-            websiteButton.render(context, mouseX, mouseY, delta);
+            websiteButton.render(renderContext, mouseX, mouseY, delta);
             currentY += UITheme.Dimensions.BUTTON_HEIGHT + 6;
             contentHeight += UITheme.Dimensions.BUTTON_HEIGHT + 6;
         }
@@ -1236,7 +1235,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
             int buttonX = x + UITheme.Dimensions.PADDING;
             int buttonY = currentY + 4;
             ensureDiscordButton(buttonWidth, buttonX, buttonY);
-            discordThreadButton.render(context, mouseX, mouseY, delta);
+            discordThreadButton.render(renderContext, mouseX, mouseY, delta);
             currentY += UITheme.Dimensions.BUTTON_HEIGHT + 10;
             contentHeight += UITheme.Dimensions.BUTTON_HEIGHT + 10;
         }

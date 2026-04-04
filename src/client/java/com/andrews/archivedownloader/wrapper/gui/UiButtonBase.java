@@ -4,8 +4,17 @@ import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import com.andrews.archivedownloader.wrapper.text.UiText;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+
+//? <1.21.11 {
+// import net.minecraft.client.gui.Font;
+//? }
+
+//? >=26.1 {
+import net.minecraft.client.gui.GuiGraphicsExtractor;
+//? } else {
+// import net.minecraft.client.gui.GuiGraphics;
+//? }
+
 import net.minecraft.client.gui.components.Button;
 
 public abstract class UiButtonBase extends Button {
@@ -13,19 +22,33 @@ public abstract class UiButtonBase extends Button {
         super(x, y, width, height, message.nativeComponent(), onPress, DEFAULT_NARRATION);
     }
 
-    //? >=1.21.11 {
+    //? >=26.1 {
     @Override
-    protected final void renderContents(GuiGraphics context, int mouseX, int mouseY, float delta) {
+    protected final void extractContents(GuiGraphicsExtractor context, int mouseX, int mouseY, float delta) {
         renderContents(UiRenderContext.from(context), mouseX, mouseY, delta);
     }
+    //? } else if >=1.21.11 {
+    // @Override
+    // protected final void renderContents(GuiGraphics context, int mouseX, int
+    // mouseY, float delta) {
+    // renderContents(UiRenderContext.from(context), mouseX, mouseY, delta);
+    // }
     //? } else {
-    /*@Override
-    public void renderString(GuiGraphics context, Font font, int color) {
-        drawText(UiRenderContext.from(context), new UiFont(font), color);
-    }
-    *///? }
+    // @Override
+    // public void renderString(GuiGraphics context, Font font, int color) {
+    //     drawText(UiRenderContext.from(context), new UiFont(font), color);
+    // }
+    //? }
 
     protected abstract void drawText(UiRenderContext context, UiFont font, int color);
+
+    public final void render(UiRenderContext context, int mouseX, int mouseY, float delta) {
+        //? >=26.1 {
+        super.extractWidgetRenderState(context.graphics(), mouseX, mouseY, delta);
+        //? } else {
+        // super.render(context.graphics(), mouseX, mouseY, delta);
+        //? }
+    }
 
     protected void renderContents(UiRenderContext context, int mouseX, int mouseY, float delta) {
         int bgColor = getBackgroundColor(mouseX, mouseY);

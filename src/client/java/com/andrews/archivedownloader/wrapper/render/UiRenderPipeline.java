@@ -5,7 +5,7 @@ import com.mojang.blaze3d.pipeline.RenderPipeline;
 import net.minecraft.client.renderer.RenderPipelines;
 //? } else {
 /*import net.minecraft.client.renderer.RenderType;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import java.util.function.Function;
 *///? }
 
@@ -25,13 +25,13 @@ public enum UiRenderPipeline {
     //? } else {
     /*GUI_TEXTURED(RenderType::guiTextured);
 
-    private final Function<ResourceLocation, RenderType> nativePipeline;
+    private final Function<Identifier, RenderType> nativePipeline;
 
-    UiRenderPipeline(Function<ResourceLocation, RenderType> nativePipeline) {
+    UiRenderPipeline(Function<Identifier, RenderType> nativePipeline) {
         this.nativePipeline = nativePipeline;
     }
 
-    public Function<ResourceLocation, RenderType> nativePipeline() {
+    public Function<Identifier, RenderType> nativePipeline() {
         return nativePipeline;
     }
     *///? }
