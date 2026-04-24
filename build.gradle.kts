@@ -47,8 +47,12 @@ dependencies {
     modImplementation(fletchingTable.modrinth("litematica", mcVersion))
     modImplementation(fletchingTable.modrinth("malilib", mcVersion))
     
-    if (mcVersion == "1.21.2" || mcVersion == "26.1" || mcVersion == "26.1.1") {
-        // No 1.21.2 or 26.1 version of worldedit
+    if (mcVersion == "1.21.2") {
+        // No 1.21.2 version of worldedit
+    } else if (mcVersion == "26.1" || mcVersion == "26.1.1" || mcVersion == "26.1.2") {
+        // beta release
+        // use DjiTrN5B
+        modImplementation("maven.modrinth:1u6JkXh5:DjiTrN5B")
     } else {
         modImplementation(fletchingTable.modrinth("worldedit", mcVersion))
     }
