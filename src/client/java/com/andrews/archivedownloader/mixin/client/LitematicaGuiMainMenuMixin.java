@@ -20,7 +20,8 @@ public abstract class LitematicaGuiMainMenuMixin extends GuiBase {
     @Inject(method = "initGui", at = @At("RETURN"))
     private void archive$addArchiveButton(CallbackInfo ci) {
         final int width = archive$getButtonWidth();
-        boolean syncmaticaPresent = FabricLoader.getInstance().isModLoaded("syncmatica");
+        boolean syncmaticaPresent = FabricLoader.getInstance().isModLoaded("syncmatica")
+                || FabricLoader.getInstance().isModLoaded("syncmatica_r");
         if (syncmaticaPresent) {
             // Syncmatica adds two buttons in the third column; stack ours beneath them
             final int x = 52 + 2 * width;
