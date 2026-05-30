@@ -1167,6 +1167,11 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
         if (button == 0 && searchField != null) {
             if (searchField.isMouseOver(mouseX, mouseY)) {
+                if (mouseEvent.shiftDown()) {
+                    searchField.setFocused(false);
+                    showSemanticSearchConsentPopup();
+                    return true;
+                }
                 searchField.setFocused(true);
                 return true;
             } else {
