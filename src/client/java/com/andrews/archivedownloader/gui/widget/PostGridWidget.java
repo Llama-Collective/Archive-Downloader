@@ -28,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import java.util.Map;
+import java.util.Locale;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -48,6 +49,7 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
     private double scrollOffset = 0;
     private ScrollBar scrollBar;
     private List<ArchivePostSummary> posts = new ArrayList<>();
+    private Map<String, Double> semanticScores = new ConcurrentHashMap<>();
     private final OnPostClickListener onPostClick;
     private final Map<String, UiTextureId> imageTextures = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<?>> imageLoading = new ConcurrentHashMap<>();
@@ -122,6 +124,17 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
             this.posts = new ArrayList<>();
         }
         this.posts.addAll(posts);
+    }
+
+    public void setSemanticScores(Map<String, Double> semanticScores) {
+        this.semanticScores = semanticScores != null ? new ConcurrentHashMap<>(semanticScores) : new ConcurrentHashMap<>();
+    }
+
+    public void putSemanticScores(Map<String, Double> semanticScores) {
+        if (semanticScores == null || semanticScores.isEmpty()) {
+            return;
+        }
+        this.semanticScores.putAll(semanticScores);
     }
 
     public void setExpectedTotalPosts(int total) {
@@ -223,6 +236,7 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
         int imgX = cardX + imgPadding;
         int imgY = cardY + imgPadding;
         int imgW = cardWidth - imgPadding * 2;
+        Double semanticScore = getSemanticScore(post);
 
         UiTextureId tex = imageTextures.get(post.id());
         if (tex != null) {
@@ -273,6 +287,7 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
             int textY = imgY + Math.max(0, (IMAGE_HEIGHT - textHeight) / 2);
             RenderUtil.drawScaledString(context, status, textX, textY, UITheme.Colors.TEXT_SUBTITLE, 0.8f);
         }
+        renderSemanticBadge(context, semanticScore, imgX + 3, imgY + 3);
 
         String title = post.title() != null ? post.title() : "Untitled";
         int textY = imgY + IMAGE_HEIGHT + 3;
@@ -302,6 +317,7 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
             int tagY = textY;
             int rows = 1;
             int maxRows = 2;
+
             for (String tag : TagUtil.orderTags(tags, server)) {
                 if (tag == null) continue;
                 String displayTag = TagUtil.formatTagLabel(tag, server);
@@ -320,6 +336,41 @@ public class PostGridWidget implements UiRenderable, UiEventListener {
             }
             textY = tagY + tagHeight + 2;
         }
+    }
+
+    private void renderSemanticBadge(UiRenderContext context, Double semanticScore, int badgeX, int badgeY) {
+        if (semanticScore == null) {
+            return;
+        }
+        String displayTag = String.format(Locale.ROOT, "AI %.2f", semanticScore);
+        float scale = 0.48f;
+        int horizontalPadding = 3;
+        int badgeWidth = (int) (client.font().width(displayTag) * scale) + horizontalPadding * 2;
+        int badgeHeight = 6;
+
+        RenderUtil.fillRect(context, badgeX, badgeY, badgeX + badgeWidth, badgeY + badgeHeight, 0xC9C9C9F7);
+        RenderUtil.drawScaledString(context, displayTag, badgeX + horizontalPadding, badgeY + 1, 0xFF3F4A5A, scale);
+    }
+
+    private Double getSemanticScore(ArchivePostSummary post) {
+        if (post == null || semanticScores == null || semanticScores.isEmpty()) {
+            return null;
+        }
+        String id = normalizeSemanticKey(post.id());
+        if (!id.isEmpty()) {
+            Double score = semanticScores.get("id:" + id);
+            if (score != null) return score;
+        }
+        String code = normalizeSemanticKey(post.code());
+        if (!code.isEmpty()) {
+            Double score = semanticScores.get("code:" + code);
+            if (score != null) return score;
+        }
+        return null;
+    }
+
+    private String normalizeSemanticKey(String value) {
+        return value != null ? value.trim().toLowerCase(Locale.ROOT) : "";
     }
 
     private int computeContentHeight(int columns) {

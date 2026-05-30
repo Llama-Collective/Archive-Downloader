@@ -20,6 +20,8 @@ public class DownloadSettings {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final String KEY_JOINED_DISCORD_SERVERS = "joinedDiscordServers";
 	private static final String KEY_SERVER_API_TOKENS = "serverApiTokens";
+	private static final String SEMANTIC_SEARCH_CONSENT_ACCEPTED = "accepted";
+	private static final String SEMANTIC_SEARCH_CONSENT_DECLINED = "declined";
 	private static DownloadSettings INSTANCE;
 
 	private JsonObject config;
@@ -72,6 +74,8 @@ public class DownloadSettings {
 		setDefault("sortOption", "newest");
 		setDefault("itemsPerPage", 20);
 		setDefault("tagFilter", "");
+		setDefault("semanticSearchEnabled", false);
+		setDefault("semanticSearchConsent", "");
 		setDefault("joinedDiscord", false);
 		setDefault("selectedServerId", getDefaultServerId());
 		ensureJoinedDiscordMap();
@@ -204,6 +208,42 @@ public class DownloadSettings {
 
 	public void setTagFilter(String tagFilter) {
 		set("tagFilter", tagFilter != null ? tagFilter : "");
+	}
+
+	public boolean isSemanticSearchEnabled() {
+		return config.has("semanticSearchEnabled") && config.get("semanticSearchEnabled").getAsBoolean();
+	}
+
+	public void setSemanticSearchEnabled(boolean enabled) {
+		set("semanticSearchEnabled", enabled);
+	}
+
+	public boolean isSemanticSearchConsentAccepted() {
+		return SEMANTIC_SEARCH_CONSENT_ACCEPTED.equalsIgnoreCase(getSemanticSearchConsent());
+	}
+
+	public boolean isSemanticSearchConsentDeclined() {
+		return SEMANTIC_SEARCH_CONSENT_DECLINED.equalsIgnoreCase(getSemanticSearchConsent());
+	}
+
+	public boolean hasSemanticSearchConsentDecision() {
+		return isSemanticSearchConsentAccepted() || isSemanticSearchConsentDeclined();
+	}
+
+	public void acceptSemanticSearchDownloads() {
+		config.addProperty("semanticSearchConsent", SEMANTIC_SEARCH_CONSENT_ACCEPTED);
+		config.addProperty("semanticSearchEnabled", true);
+		save();
+	}
+
+	public void declineSemanticSearchDownloads() {
+		config.addProperty("semanticSearchConsent", SEMANTIC_SEARCH_CONSENT_DECLINED);
+		config.addProperty("semanticSearchEnabled", false);
+		save();
+	}
+
+	private String getSemanticSearchConsent() {
+		return config.has("semanticSearchConsent") ? config.get("semanticSearchConsent").getAsString().trim() : "";
 	}
 
 	public boolean hasJoinedDiscord() {

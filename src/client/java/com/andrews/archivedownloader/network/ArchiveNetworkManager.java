@@ -103,40 +103,35 @@ public class ArchiveNetworkManager {
 	) {
 		ServerEntry targetServer = normalizeServer(server);
 		return ensureIndexLoaded(targetServer).thenApply(index -> {
-			List<ArchivePostSummary> filtered = new ArrayList<>(filterPosts(index.posts(), query, tag, includeTags, excludeTags, channelPaths));
-			sortPosts(filtered, sort);
-
-			Map<String, Integer> channelCounts = new LinkedHashMap<>();
-			for (ArchiveChannel channel : index.channels()) {
-				if (channel != null && channel.path() != null) {
-					channelCounts.put(channel.path(), 0);
-				}
-			}
-			Map<String, Integer> tagCounts = new LinkedHashMap<>();
-			for (ArchivePostSummary post : filtered) {
-				if (post == null || post.channelPath() == null) continue;
-				String path = post.channelPath();
-				channelCounts.put(path, channelCounts.getOrDefault(path, 0) + 1);
-				if (post.tags() != null) {
-					for (String tag2 : post.tags()) {
-						if (tag2 == null) continue;
-						String key = tag2.toLowerCase(Locale.ROOT);
-						tagCounts.put(key, tagCounts.getOrDefault(key, 0) + 1);
-					}
-				}
-			}
-
-			int totalItems = filtered.size();
-			int totalPages = Math.max(1, (int) Math.ceil(totalItems / (double) Math.max(itemsPerPage, 1)));
-
-			int startIndex = Math.max(0, (page - 1) * Math.max(itemsPerPage, 1));
-			int endIndex = Math.min(filtered.size(), startIndex + Math.max(itemsPerPage, 1));
-			List<ArchivePostSummary> pageItems = filtered.subList(
-				Math.min(startIndex, filtered.size()),
-				Math.min(endIndex, filtered.size())
+			List<ArchivePostSummary> regularFiltered = new ArrayList<>(
+				filterPosts(index.posts(), query, tag, includeTags, excludeTags, channelPaths)
 			);
+			sortPosts(regularFiltered, sort);
+			return buildArchiveSearchResult(index, regularFiltered, page, itemsPerPage);
+		});
+	}
 
-			return new ArchiveSearchResult(pageItems, totalPages, totalItems, channelCounts, tagCounts);
+	public static CompletableFuture<ArchiveSearchResult> searchSemanticPosts(
+		ServerEntry server,
+		String query,
+		String sort,
+		String tag,
+		List<String> includeTags,
+		List<String> excludeTags,
+		List<String> channelPaths
+	) {
+		ServerEntry targetServer = normalizeServer(server);
+		if (!DownloadSettings.getInstance().isSemanticSearchEnabled() || safeTrim(query).isEmpty()) {
+			return CompletableFuture.completedFuture(
+				new ArchiveSearchResult(List.of(), 1, 0, Map.of(), Map.of(), Map.of())
+			);
+		}
+		return ensureIndexLoaded(targetServer).thenCompose(index -> {
+			List<ArchivePostSummary> regularFiltered = new ArrayList<>(
+				filterPosts(index.posts(), query, tag, includeTags, excludeTags, channelPaths)
+			);
+			sortPosts(regularFiltered, sort);
+			return buildSemanticSearchResult(targetServer, index, regularFiltered, query, tag, includeTags, excludeTags, channelPaths);
 		});
 	}
 
@@ -658,7 +653,7 @@ public class ArchiveNetworkManager {
 
 	private static ArchiveIndexCache buildCacheFromPersistentIndex(PersistentIndexData index) {
 		if (index == null) {
-			return new ArchiveIndexCache(List.of(), List.of());
+			return new ArchiveIndexCache(List.of(), List.of(), 0);
 		}
 
 		List<String> allTags = index.allTags() != null ? index.allTags() : List.of();
@@ -714,7 +709,7 @@ public class ArchiveNetworkManager {
 			}
 		}
 
-		return new ArchiveIndexCache(posts, channels);
+		return new ArchiveIndexCache(posts, channels, index.updatedAt());
 	}
 
 	private static Map<String, StyleInfo> parseSchemaStyles(byte[] stylesBytes) {
@@ -737,11 +732,11 @@ public class ArchiveNetworkManager {
 		return INDEX_FUTURES.computeIfAbsent(key, k -> loadIndexAsync(targetServer));
 	}
 
-	private static ServerEntry normalizeServer(ServerEntry server) {
+	static ServerEntry normalizeServer(ServerEntry server) {
 		return server != null ? server : ServerDictionary.getDefaultServer();
 	}
 
-	private static String serverKey(ServerEntry server) {
+	static String serverKey(ServerEntry server) {
 		ServerEntry target = normalizeServer(server);
 		if (target.id() != null && !target.id().isBlank()) {
 			return target.id().toLowerCase(Locale.ROOT);
@@ -774,6 +769,175 @@ public class ArchiveNetworkManager {
 			.filter(post -> normalizedChannels.isEmpty() ||
 				(post.channelPath() != null && normalizedChannels.contains(post.channelPath().toLowerCase(Locale.ROOT))))
 			.toList();
+	}
+
+	private static CompletableFuture<ArchiveSearchResult> buildSemanticSearchResult(
+		ServerEntry server,
+		ArchiveIndexCache index,
+		List<ArchivePostSummary> regularFiltered,
+		String query,
+		String tag,
+		List<String> includeTags,
+		List<String> excludeTags,
+		List<String> channelPaths
+	) {
+		List<ArchivePostSummary> eligiblePosts = filterPosts(index.posts(), "", tag, includeTags, excludeTags, channelPaths);
+		if (eligiblePosts.isEmpty()) {
+			return CompletableFuture.completedFuture(
+				new ArchiveSearchResult(List.of(), 1, 0, Map.of(), Map.of(), Map.of())
+			);
+		}
+
+		Map<String, ArchivePostSummary> candidatesByIdentifier = new LinkedHashMap<>();
+		for (ArchivePostSummary post : eligiblePosts) {
+			addSemanticCandidate(candidatesByIdentifier, post);
+		}
+		if (candidatesByIdentifier.isEmpty()) {
+			return CompletableFuture.completedFuture(
+				new ArchiveSearchResult(List.of(), 1, 0, Map.of(), Map.of(), Map.of())
+			);
+		}
+
+		return SemanticSearchManager.search(server, query, index.updatedAt()).thenApply(scores -> {
+			if (scores == null || scores.isEmpty()) {
+				return new ArchiveSearchResult(List.of(), 1, 0, Map.of(), Map.of(), Map.of());
+			}
+			List<ArchivePostSummary> semanticPosts = new ArrayList<>();
+			Map<String, Double> semanticScores = new LinkedHashMap<>();
+			Set<String> seen = new LinkedHashSet<>();
+			for (ArchivePostSummary post : regularFiltered) {
+				addSemanticKeys(seen, post);
+			}
+
+			for (SemanticSearchManager.SemanticScore score : scores) {
+				ArchivePostSummary post = candidatesByIdentifier.get(normalizeSemanticIdentifier(score.identifier()));
+				if (post == null) {
+					continue;
+				}
+				if (!isSemanticSeen(seen, post)) {
+					addSemanticKeys(seen, post);
+					semanticPosts.add(post);
+					addSemanticScore(semanticScores, post, score.score());
+				}
+			}
+			return new ArchiveSearchResult(
+				semanticPosts,
+				1,
+				semanticPosts.size(),
+				Map.of(),
+				Map.of(),
+				semanticScores
+			);
+		});
+	}
+
+	private static void addSemanticScore(Map<String, Double> semanticScores, ArchivePostSummary post, double score) {
+		String key = semanticPostKey(post);
+		if (!key.isEmpty()) {
+			semanticScores.put(key, score);
+		}
+		String code = normalizeSemanticIdentifier(post != null ? post.code() : null);
+		if (!code.isEmpty()) {
+			semanticScores.put("code:" + code, score);
+		}
+		String id = normalizeSemanticIdentifier(post != null ? post.id() : null);
+		if (!id.isEmpty()) {
+			semanticScores.put("id:" + id, score);
+		}
+	}
+
+	private static void addSemanticCandidate(Map<String, ArchivePostSummary> candidatesByIdentifier, ArchivePostSummary post) {
+		if (post == null) {
+			return;
+		}
+		String code = normalizeSemanticIdentifier(post.code());
+		if (!code.isEmpty()) {
+			candidatesByIdentifier.putIfAbsent(code, post);
+		}
+		String id = normalizeSemanticIdentifier(post.id());
+		if (!id.isEmpty()) {
+			candidatesByIdentifier.putIfAbsent(id, post);
+		}
+	}
+
+	private static void addSemanticKeys(Set<String> seen, ArchivePostSummary post) {
+		String key = semanticPostKey(post);
+		if (!key.isEmpty()) {
+			seen.add(key);
+		}
+		String code = normalizeSemanticIdentifier(post != null ? post.code() : null);
+		if (!code.isEmpty()) {
+			seen.add("code:" + code);
+		}
+		String id = normalizeSemanticIdentifier(post != null ? post.id() : null);
+		if (!id.isEmpty()) {
+			seen.add("id:" + id);
+		}
+	}
+
+	private static boolean isSemanticSeen(Set<String> seen, ArchivePostSummary post) {
+		String key = semanticPostKey(post);
+		if (!key.isEmpty() && seen.contains(key)) {
+			return true;
+		}
+		String code = normalizeSemanticIdentifier(post != null ? post.code() : null);
+		if (!code.isEmpty() && seen.contains("code:" + code)) {
+			return true;
+		}
+		String id = normalizeSemanticIdentifier(post != null ? post.id() : null);
+		return !id.isEmpty() && seen.contains("id:" + id);
+	}
+
+	private static String semanticPostKey(ArchivePostSummary post) {
+		if (post == null) {
+			return "";
+		}
+		String id = normalizeSemanticIdentifier(post.id());
+		if (!id.isEmpty()) {
+			return "id:" + id;
+		}
+		String code = normalizeSemanticIdentifier(post.code());
+		return !code.isEmpty() ? "code:" + code : "";
+	}
+
+	private static String normalizeSemanticIdentifier(String value) {
+		return safeTrim(value).toLowerCase(Locale.ROOT);
+	}
+
+	private static ArchiveSearchResult buildArchiveSearchResult(
+		ArchiveIndexCache index,
+		List<ArchivePostSummary> filtered,
+		int page,
+		int itemsPerPage
+	) {
+		List<ArchivePostSummary> safeFiltered = filtered != null ? filtered : List.of();
+		Map<String, Integer> channelCounts = new LinkedHashMap<>();
+		for (ArchiveChannel channel : index.channels()) {
+			if (channel != null && channel.path() != null) {
+				channelCounts.put(channel.path(), 0);
+			}
+		}
+		for (ArchivePostSummary post : safeFiltered) {
+			if (post == null || post.channelPath() == null) {
+				continue;
+			}
+			String path = post.channelPath();
+			channelCounts.put(path, channelCounts.getOrDefault(path, 0) + 1);
+		}
+
+		Map<String, Integer> tagCounts = computeTagCounts(safeFiltered);
+		int safeItemsPerPage = Math.max(itemsPerPage, 1);
+		int totalItems = safeFiltered.size();
+		int totalPages = Math.max(1, (int) Math.ceil(totalItems / (double) safeItemsPerPage));
+
+		int startIndex = Math.max(0, (Math.max(page, 1) - 1) * safeItemsPerPage);
+		int endIndex = Math.min(safeFiltered.size(), startIndex + safeItemsPerPage);
+		List<ArchivePostSummary> pageItems = safeFiltered.subList(
+			Math.min(startIndex, safeFiltered.size()),
+			Math.min(endIndex, safeFiltered.size())
+		);
+
+		return new ArchiveSearchResult(pageItems, totalPages, totalItems, channelCounts, tagCounts);
 	}
 
 	private static boolean matchesQuery(ArchivePostSummary post, String normalizedQuery) {
@@ -1995,7 +2159,7 @@ public class ArchiveNetworkManager {
 		return buildRawUrl(server, basePath + "/" + path);
 	}
 
-	private static String buildRawUrl(ServerEntry server, String path) {
+	static String buildRawUrl(ServerEntry server, String path) {
 		ServerEntry target = normalizeServer(server);
 		String owner = target.owner() != null && !target.owner().isBlank() ? target.owner() : "Storage-Tech-2";
 		String repo = target.repo() != null && !target.repo().isBlank() ? target.repo() : "Archive";
@@ -2218,7 +2382,7 @@ public class ArchiveNetworkManager {
 		return codes.get(0);
 	}
 
-	private record ArchiveIndexCache(List<ArchivePostSummary> posts, List<ArchiveChannel> channels) {
+	private record ArchiveIndexCache(List<ArchivePostSummary> posts, List<ArchiveChannel> channels, long updatedAt) {
 	}
 
 	private record SubmissionPage(

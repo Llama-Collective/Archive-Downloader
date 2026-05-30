@@ -27,6 +27,7 @@ import com.andrews.archivedownloader.gui.widget.LoadingSpinner;
 import com.andrews.archivedownloader.gui.widget.PostDetailPanel;
 import com.andrews.archivedownloader.gui.widget.PostGridWidget;
 import com.andrews.archivedownloader.gui.widget.ScrollBar;
+import com.andrews.archivedownloader.gui.widget.SemanticSearchConsentPopup;
 import com.andrews.archivedownloader.gui.widget.TagFilterWidget;
 import com.andrews.archivedownloader.gui.widget.UpdateAvailablePopup;
 import com.andrews.archivedownloader.models.ArchiveChannel;
@@ -76,6 +77,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private DiscordJoinPopup discordPopup;
     private UpdateAvailablePopup updatePopup;
     private ApiTokenPopup apiTokenPopup;
+    private SemanticSearchConsentPopup semanticSearchPopup;
     private String pendingDiscordUrl;
 
     private int currentPage = 1;
@@ -99,6 +101,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     private double restoreDetailPostScrollOffset = 0;
     private List<ArchiveChannel> channels = new ArrayList<>();
     private List<ArchivePostSummary> currentPosts = new ArrayList<>();
+    private final Map<String, Double> semanticScores = new HashMap<>();
+    private int semanticSearchGeneration = 0;
+    private int semanticInsertIndex = -1;
     private boolean showDetailOverlay = false;
     private boolean showChannelPanel = false;
     private boolean showServerDropdown = false;
@@ -404,9 +409,13 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             return;
 
         currentSearchQuery = searchField != null ? searchField.getValue().trim() : "";
+        if (shouldPromptForSemanticSearch(currentSearchQuery)) {
+            showSemanticSearchConsentPopup();
+            return;
+        }
+        semanticSearchGeneration++;
         currentTagFilter = "";
         currentPage = 1;
-        currentPosts.clear();
         noResultsFound = false;
 
         if (detailPanel != null) {
@@ -414,6 +423,28 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         }
 
         loadPage(false);
+    }
+
+    private boolean shouldPromptForSemanticSearch(String query) {
+        if (showSubmissionsView || query == null || query.isBlank()) {
+            return false;
+        }
+        DownloadSettings settings = DownloadSettings.getInstance();
+        return !settings.hasSemanticSearchConsentDecision() && semanticSearchPopup == null;
+    }
+
+    private void showSemanticSearchConsentPopup() {
+        semanticSearchPopup = new SemanticSearchConsentPopup(
+                () -> {
+                    DownloadSettings.getInstance().acceptSemanticSearchDownloads();
+                    semanticSearchPopup = null;
+                    performSearch();
+                },
+                () -> {
+                    DownloadSettings.getInstance().declineSemanticSearchDownloads();
+                    semanticSearchPopup = null;
+                    performSearch();
+                });
     }
 
     private void loadPage(boolean append) {
@@ -458,7 +489,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         }
 
         searchFuture
-                .thenAccept(result -> handleSearchResponse(requestServer, result))
+                .thenAccept(result -> handleSearchResponse(requestServer, result, append))
                 .exceptionally(throwable -> {
                     executeOnClient(() -> {
                         isLoading = false;
@@ -492,7 +523,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                 });
     }
 
-    private void handleSearchResponse(ServerEntry responseServer, ArchiveSearchResult response) {
+    private void handleSearchResponse(ServerEntry responseServer, ArchiveSearchResult response, boolean append) {
         UiMinecraftClient client = uiClientOrNull();
         if (client != null) {
             if (!isActiveServer(responseServer)) {
@@ -508,6 +539,12 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                     isLoadingMore = false;
                     return;
                 }
+                boolean semanticWillRun = canRunSemanticSearch(currentSearchQuery);
+                List<ArchivePostSummary> previousSemanticPosts = semanticWillRun ? getCurrentSemanticPosts() : List.of();
+                Map<String, Double> previousSemanticScores = semanticWillRun && !previousSemanticPosts.isEmpty()
+                        ? new HashMap<>(semanticScores)
+                        : Map.of();
+
                 totalPages = response.totalPages();
                 totalItems = response.totalItems();
                 channelCounts.clear();
@@ -519,23 +556,41 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                 List<ArchivePostSummary> posts = response.posts();
                 if (posts != null) {
                     if (isLoadingMore) {
-                        currentPosts.addAll(posts);
+                        if (semanticInsertIndex >= 0) {
+                            int insertIndex = Math.min(semanticInsertIndex, currentPosts.size());
+                            currentPosts.addAll(insertIndex, posts);
+                            semanticInsertIndex += posts.size();
+                        } else {
+                            currentPosts.addAll(posts);
+                        }
                         if (postGrid != null) {
-                            postGrid.appendPosts(posts);
-                            postGrid.setExpectedTotalPosts(totalItems);
+                            if (semanticInsertIndex >= 0) {
+                                double previousScroll = postGrid.getScrollOffset();
+                                postGrid.resetPosts(new ArrayList<>(currentPosts));
+                                postGrid.setSemanticScores(semanticScores);
+                                postGrid.setScrollOffset(previousScroll);
+                            } else {
+                                postGrid.appendPosts(posts);
+                            }
+                            postGrid.setExpectedTotalPosts(getExpectedTotalPosts());
                         }
                     } else {
                         currentPosts.clear();
                         currentPosts.addAll(posts);
+                        restorePreviousSemanticResults(previousSemanticPosts, previousSemanticScores);
                         if (postGrid != null) {
                             postGrid.resetPosts(new ArrayList<>(currentPosts));
-                            postGrid.setExpectedTotalPosts(totalItems);
+                            postGrid.setSemanticScores(semanticScores);
+                            postGrid.setExpectedTotalPosts(getExpectedTotalPosts());
                             maybeRestoreSessionGridScroll();
                         }
                     }
                 } else if (!isLoadingMore && postGrid != null) {
+                    semanticScores.clear();
+                    semanticInsertIndex = -1;
                     postGrid.resetPosts(new ArrayList<>());
-                    postGrid.setExpectedTotalPosts(totalItems);
+                    postGrid.setSemanticScores(Map.of());
+                    postGrid.setExpectedTotalPosts(getExpectedTotalPosts());
                     maybeRestoreSessionGridScroll();
                 }
 
@@ -553,9 +608,159 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                 isLoadingMore = false;
                 updatePaginationButtons();
 
-                noResultsFound = (totalItems == 0);
+                noResultsFound = currentPosts.isEmpty();
+                if (!append) {
+                    startSemanticSearch(responseServer, semanticSearchGeneration);
+                }
             });
         }
+    }
+
+    private void startSemanticSearch(ServerEntry requestServer, int generation) {
+        if (!canRunSemanticSearch(currentSearchQuery)) {
+            return;
+        }
+
+        List<String> channelFilter = selectedChannelPath != null ? List.of(selectedChannelPath) : null;
+        List<String> includeTags = getTagList(TagState.INCLUDE);
+        List<String> excludeTags = getTagList(TagState.EXCLUDE);
+        String query = currentSearchQuery;
+        String sort = selectedSort;
+        String tag = currentTagFilter;
+
+        ArchiveNetworkManager.searchSemanticPosts(
+                requestServer,
+                query,
+                sort,
+                tag,
+                includeTags,
+                excludeTags,
+                channelFilter)
+            .thenAccept(result -> handleSemanticSearchResponse(requestServer, generation, query, result))
+            .exceptionally(throwable -> {
+                System.err.println("[SemanticSearch] Background search failed: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    private void handleSemanticSearchResponse(ServerEntry responseServer, int generation, String query, ArchiveSearchResult response) {
+        UiMinecraftClient client = uiClientOrNull();
+        if (client == null) {
+            return;
+        }
+        client.execute(() -> {
+            if (generation != semanticSearchGeneration || !isActiveServer(responseServer) || !query.equals(currentSearchQuery)) {
+                return;
+            }
+            List<ArchivePostSummary> posts = response != null && response.posts() != null ? response.posts() : List.of();
+            double previousScroll = postGrid != null ? postGrid.getScrollOffset() : 0;
+            removeSemanticResults();
+            semanticScores.clear();
+            if (posts.isEmpty()) {
+                if (postGrid != null) {
+                    postGrid.resetPosts(new ArrayList<>(currentPosts));
+                    postGrid.setSemanticScores(Map.of());
+                    postGrid.setExpectedTotalPosts(getExpectedTotalPosts());
+                    postGrid.setScrollOffset(previousScroll);
+                }
+                noResultsFound = currentPosts.isEmpty();
+                return;
+            }
+
+            semanticInsertIndex = currentPosts.size();
+            currentPosts.addAll(posts);
+            if (response.semanticScores() != null) {
+                semanticScores.putAll(response.semanticScores());
+            }
+            if (postGrid != null) {
+                postGrid.resetPosts(new ArrayList<>(currentPosts));
+                postGrid.setSemanticScores(semanticScores);
+                postGrid.setExpectedTotalPosts(getExpectedTotalPosts());
+                postGrid.setScrollOffset(previousScroll);
+            }
+            noResultsFound = currentPosts.isEmpty();
+        });
+    }
+
+    private boolean canRunSemanticSearch(String query) {
+        return !showSubmissionsView && DownloadSettings.getInstance().isSemanticSearchEnabled()
+                && query != null && !query.isBlank();
+    }
+
+    private List<ArchivePostSummary> getCurrentSemanticPosts() {
+        if (semanticInsertIndex < 0 || semanticInsertIndex >= currentPosts.size()) {
+            return List.of();
+        }
+        return new ArrayList<>(currentPosts.subList(semanticInsertIndex, currentPosts.size()));
+    }
+
+    private void restorePreviousSemanticResults(List<ArchivePostSummary> posts, Map<String, Double> scores) {
+        semanticScores.clear();
+        semanticInsertIndex = -1;
+        if (posts == null || posts.isEmpty()) {
+            return;
+        }
+
+        List<ArchivePostSummary> filtered = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (ArchivePostSummary post : currentPosts) {
+            addPostKeys(seen, post);
+        }
+        for (ArchivePostSummary post : posts) {
+            if (post == null || hasPostKey(seen, post)) {
+                continue;
+            }
+            addPostKeys(seen, post);
+            filtered.add(post);
+        }
+        if (filtered.isEmpty()) {
+            return;
+        }
+
+        semanticInsertIndex = currentPosts.size();
+        currentPosts.addAll(filtered);
+        if (scores != null && !scores.isEmpty()) {
+            semanticScores.putAll(scores);
+        }
+    }
+
+    private void removeSemanticResults() {
+        if (semanticInsertIndex >= 0 && semanticInsertIndex < currentPosts.size()) {
+            currentPosts.subList(semanticInsertIndex, currentPosts.size()).clear();
+        }
+        semanticInsertIndex = -1;
+    }
+
+    private int getExpectedTotalPosts() {
+        return Math.max(totalItems + getSemanticResultCount(), currentPosts.size());
+    }
+
+    private int getSemanticResultCount() {
+        return semanticInsertIndex >= 0 ? Math.max(0, currentPosts.size() - semanticInsertIndex) : 0;
+    }
+
+    private boolean hasPostKey(java.util.Set<String> keys, ArchivePostSummary post) {
+        String id = normalizePostKey(post != null ? post.id() : null);
+        if (!id.isEmpty() && keys.contains("id:" + id)) {
+            return true;
+        }
+        String code = normalizePostKey(post != null ? post.code() : null);
+        return !code.isEmpty() && keys.contains("code:" + code);
+    }
+
+    private void addPostKeys(java.util.Set<String> keys, ArchivePostSummary post) {
+        String id = normalizePostKey(post != null ? post.id() : null);
+        if (!id.isEmpty()) {
+            keys.add("id:" + id);
+        }
+        String code = normalizePostKey(post != null ? post.code() : null);
+        if (!code.isEmpty()) {
+            keys.add("code:" + code);
+        }
+    }
+
+    private String normalizePostKey(String value) {
+        return value != null ? value.trim().toLowerCase(java.util.Locale.ROOT) : "";
     }
 
     private void updatePaginationButtons() {
@@ -804,7 +1009,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         super.renderScreen(renderContext, mouseX, mouseY, delta);
 
         if (postGrid != null) {
-            postGrid.setBlocked(showChannelPanel || showServerDropdown || apiTokenPopup != null);
+            postGrid.setBlocked(showChannelPanel || showServerDropdown || apiTokenPopup != null || semanticSearchPopup != null);
             postGrid.render(renderContext, mouseX, mouseY, delta);
         }
 
@@ -874,6 +1079,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         if (apiTokenPopup != null) {
             apiTokenPopup.render(renderContext, mouseX, mouseY, delta);
         }
+        if (semanticSearchPopup != null) {
+            semanticSearchPopup.render(renderContext, mouseX, mouseY, delta);
+        }
     }
 
     @Override
@@ -885,6 +1093,10 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
         if (apiTokenPopup != null) {
             return apiTokenPopup.mouseClicked(mouseEvent, doubled);
+        }
+
+        if (semanticSearchPopup != null) {
+            return semanticSearchPopup.mouseClicked(mouseEvent, doubled);
         }
 
         if (updatePopup != null) {
@@ -990,6 +1202,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         if (apiTokenPopup != null) {
             return true;
         }
+        if (semanticSearchPopup != null) {
+            return true;
+        }
         if (showServerDropdown) {
             return false;
         }
@@ -1018,6 +1233,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     @Override
     protected boolean onMouseReleased(UiMouseEvent mouseEvent) {
         if (apiTokenPopup != null) {
+            return true;
+        }
+        if (semanticSearchPopup != null) {
             return true;
         }
         if (showServerDropdown) {
@@ -1049,6 +1267,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         if (apiTokenPopup != null) {
             return apiTokenPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+        }
+        if (semanticSearchPopup != null) {
+            return semanticSearchPopup.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
         }
         if (showServerDropdown) {
             handleServerDropdownScroll(mouseX, mouseY, verticalAmount);
@@ -1091,6 +1312,12 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
     public boolean shouldCloseOnEsc() {
         if (apiTokenPopup != null) {
             clearApiTokenPopup();
+            return false;
+        }
+        if (semanticSearchPopup != null) {
+            DownloadSettings.getInstance().declineSemanticSearchDownloads();
+            semanticSearchPopup = null;
+            performSearch();
             return false;
         }
         if (showServerDropdown) {
