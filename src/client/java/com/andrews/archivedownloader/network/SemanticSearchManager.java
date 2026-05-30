@@ -32,6 +32,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 final class SemanticSearchManager {
 	private static final String DEFAULT_WEBSITE_BASE = "https://llamamc.org/website-template";
@@ -56,6 +57,25 @@ final class SemanticSearchManager {
 	private static final Map<String, CompletableFuture<List<EmbeddingEntry>>> EMBEDDING_FUTURES = new ConcurrentHashMap<>();
 
 	private SemanticSearchManager() {
+	}
+
+	static void clearMemoryCache() {
+		List<CompletableFuture<SemanticAssets>> assetFutures = new ArrayList<>(ASSET_FUTURES.values());
+		ASSET_FUTURES.clear();
+		EMBEDDING_FUTURES.clear();
+		for (CompletableFuture<SemanticAssets> future : assetFutures) {
+			if (future == null) {
+				continue;
+			}
+			if (future.isDone() && !future.isCompletedExceptionally() && !future.isCancelled()) {
+				try {
+					future.join().close();
+				} catch (Exception ignored) {
+				}
+			} else {
+				future.thenAccept(SemanticAssets::close);
+			}
+		}
 	}
 
 	static CompletableFuture<List<SemanticScore>> search(ServerEntry server, String query, long indexUpdatedAt) {
@@ -392,6 +412,7 @@ final class SemanticSearchManager {
 	private static final class SemanticAssets {
 		private final WordPieceTokenizer tokenizer;
 		private final OrtModel model;
+		private final AtomicBoolean closed = new AtomicBoolean(false);
 
 		private SemanticAssets(WordPieceTokenizer tokenizer, OrtModel model) {
 			this.tokenizer = tokenizer;
@@ -399,8 +420,17 @@ final class SemanticSearchManager {
 		}
 
 		private byte[] embed(String text) {
+			if (closed.get()) {
+				throw new CompletionException(new IllegalStateException("Semantic search model is closed"));
+			}
 			EncodedInput encoded = tokenizer.encode(text);
 			return quantize(model.embed(encoded));
+		}
+
+		private void close() {
+			if (closed.compareAndSet(false, true)) {
+				model.close();
+			}
 		}
 	}
 
@@ -415,6 +445,8 @@ final class SemanticSearchManager {
 		private final Method resultGetByNameMethod;
 		private final Method resultGetByIndexMethod;
 		private final Method tensorGetValueMethod;
+		private final URLClassLoader loader;
+		private final AtomicBoolean closed = new AtomicBoolean(false);
 
 		private OrtModel(
 			byte[] modelBytes,
@@ -425,7 +457,8 @@ final class SemanticSearchManager {
 			Method runMethod,
 			Method resultGetByNameMethod,
 			Method resultGetByIndexMethod,
-			Method tensorGetValueMethod
+			Method tensorGetValueMethod,
+			URLClassLoader loader
 		) {
 			this.modelBytes = modelBytes;
 			this.environment = environment;
@@ -436,6 +469,7 @@ final class SemanticSearchManager {
 			this.resultGetByNameMethod = resultGetByNameMethod;
 			this.resultGetByIndexMethod = resultGetByIndexMethod;
 			this.tensorGetValueMethod = tensorGetValueMethod;
+			this.loader = loader;
 		}
 
 		static OrtModel load(Path runtimeJar, byte[] modelBytes) throws Exception {
@@ -465,11 +499,15 @@ final class SemanticSearchManager {
 				sessionClass.getMethod("run", Map.class),
 				resultClass.getMethod("get", String.class),
 				resultClass.getMethod("get", int.class),
-				tensorClass.getMethod("getValue")
+				tensorClass.getMethod("getValue"),
+				loader
 			);
 		}
 
 		private float[] embed(EncodedInput encoded) {
+			if (closed.get()) {
+				throw new CompletionException(new IllegalStateException("ONNX semantic search session is closed"));
+			}
 			Object inputIds = null;
 			Object attentionMask = null;
 			Object tokenTypeIds = null;
@@ -584,6 +622,13 @@ final class SemanticSearchManager {
 					closeable.close();
 				} catch (Exception ignored) {
 				}
+			}
+		}
+
+		private void close() {
+			if (closed.compareAndSet(false, true)) {
+				closeQuietly(session);
+				closeQuietly(loader);
 			}
 		}
 	}

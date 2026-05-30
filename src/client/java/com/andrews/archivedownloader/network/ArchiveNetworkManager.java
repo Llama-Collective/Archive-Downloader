@@ -457,6 +457,7 @@ public class ArchiveNetworkManager {
 		DICTIONARY_SUMMARY_FUTURES.clear();
 		CACHED_DICTIONARY_ENTRIES.clear();
 		DICTIONARY_ENTRY_FUTURES.clear();
+		SemanticSearchManager.clearMemoryCache();
 	}
 
 	private static CompletableFuture<List<GlobalTag>> loadGlobalTagsAsync(ServerEntry server) {
