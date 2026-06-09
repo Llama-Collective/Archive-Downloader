@@ -123,6 +123,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
 
     private final Map<String, TagState> tagStates = new HashMap<>();
     private final Map<String, Integer> tagCounts = new HashMap<>();
+    private final Map<String, Integer> baseTagCounts = new HashMap<>();
     private final Map<String, Integer> channelCounts = new HashMap<>();
 
     public ArchiveDownloaderScreen() {
@@ -657,6 +658,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             removeSemanticResults();
             semanticScores.clear();
             if (posts.isEmpty()) {
+                rebuildTagCountsWithSemanticPosts();
                 if (postGrid != null) {
                     postGrid.resetPosts(new ArrayList<>(currentPosts));
                     postGrid.setSemanticScores(Map.of());
@@ -672,6 +674,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             if (response.semanticScores() != null) {
                 semanticScores.putAll(response.semanticScores());
             }
+            rebuildTagCountsWithSemanticPosts();
             if (postGrid != null) {
                 postGrid.resetPosts(new ArrayList<>(currentPosts));
                 postGrid.setSemanticScores(semanticScores);
@@ -851,6 +854,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         selectedChannelPath = null;
         tagStates.clear();
         tagCounts.clear();
+        baseTagCounts.clear();
         channelCounts.clear();
         channels = new ArrayList<>();
         currentPosts.clear();
@@ -886,6 +890,7 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         selectedChannelPath = null;
         tagStates.clear();
         tagCounts.clear();
+        baseTagCounts.clear();
         channelCounts.clear();
         channels = new ArrayList<>();
         currentPosts.clear();
@@ -1837,6 +1842,27 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                     .orElse(List.of());
             return TagUtil.orderTags(tags, server);
         }
+        boolean hasSearchQuery = currentSearchQuery != null && !currentSearchQuery.isBlank();
+        if (hasSearchQuery) {
+            List<String> countedTags = new ArrayList<>();
+            for (Map.Entry<String, Integer> entry : tagCounts.entrySet()) {
+                if (entry.getKey() == null || entry.getKey().isBlank()) {
+                    continue;
+                }
+                int count = entry.getValue() != null ? entry.getValue() : 0;
+                if (count > 0 && !countedTags.contains(entry.getKey())) {
+                    countedTags.add(entry.getKey());
+                }
+            }
+            for (String tag : tagStates.keySet()) {
+                if (tag != null && !tag.isBlank() && !countedTags.contains(tag)) {
+                    countedTags.add(tag);
+                }
+            }
+            if (!countedTags.isEmpty()) {
+                return TagUtil.orderTags(countedTags, server);
+            }
+        }
         List<String> globalTagNames = ArchiveNetworkManager.getCachedGlobalTags(server).stream()
                 .map(GlobalTag::name)
                 .filter(name -> name != null && !name.isBlank())
@@ -1898,6 +1924,9 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
                 int value = entry.getValue() != null ? entry.getValue() : 0;
                 tagCounts.put(key, value);
             }
+            baseTagCounts.clear();
+            baseTagCounts.putAll(tagCounts);
+            mergeTagCountsFromPosts(getCurrentSemanticPosts());
         } else {
             for (ArchivePostSummary post : currentPosts) {
                 if (post == null || post.tags() == null)
@@ -1915,6 +1944,38 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         }
         if (tagFilterWidget != null) {
             tagFilterWidget.setData(getDisplayedTags(), tagCounts, convertTagStates());
+        }
+    }
+
+    private void rebuildTagCountsWithSemanticPosts() {
+        tagCounts.clear();
+        tagCounts.putAll(baseTagCounts);
+        mergeTagCountsFromPosts(getCurrentSemanticPosts());
+        for (String tag : getDisplayedTags()) {
+            tagCounts.putIfAbsent(tag.toLowerCase(), 0);
+        }
+        if (tagFilterWidget != null) {
+            tagFilterWidget.setData(getDisplayedTags(), tagCounts, convertTagStates());
+        }
+    }
+
+    private void mergeTagCountsFromPosts(List<ArchivePostSummary> posts) {
+        if (posts == null || posts.isEmpty()) {
+            return;
+        }
+        for (ArchivePostSummary post : posts) {
+            if (post == null || post.tags() == null) {
+                continue;
+            }
+            for (String tag : post.tags()) {
+                if (tag == null) {
+                    continue;
+                }
+                String key = tag.toLowerCase();
+                if (!key.isBlank()) {
+                    tagCounts.put(key, tagCounts.getOrDefault(key, 0) + 1);
+                }
+            }
         }
     }
 
