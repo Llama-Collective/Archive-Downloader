@@ -6,8 +6,8 @@ import com.andrews.archivedownloader.wrapper.text.UiText;
 //? >=26.1 {
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 //? } else {
-// import net.minecraft.client.gui.GuiGraphics;
-//? }
+ /*import net.minecraft.client.gui.GuiGraphics;
+*///? }
 
 import net.minecraft.client.gui.components.EditBox;
 
@@ -30,11 +30,11 @@ public abstract class UiTextFieldBase extends EditBox {
         renderWidget(UiRenderContext.from(context), mouseX, mouseY, delta);
     }
     //? } else {
-    // @Override
-    // public final void renderWidget(GuiGraphics context, int mouseX, int mouseY, float delta) {
-    //     renderWidget(UiRenderContext.from(context), mouseX, mouseY, delta);
-    // }
-    //? }
+     /*@Override
+     public final void renderWidget(GuiGraphics context, int mouseX, int mouseY, float delta) {
+         renderWidget(UiRenderContext.from(context), mouseX, mouseY, delta);
+     }
+    *///? }
 
     protected abstract void renderWidget(UiRenderContext context, int mouseX, int mouseY, float delta);
 }

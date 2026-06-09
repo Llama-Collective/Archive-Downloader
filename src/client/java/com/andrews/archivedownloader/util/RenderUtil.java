@@ -32,8 +32,8 @@ public final class RenderUtil {
         //? >=26.1 {
         context.graphics().text(font.nativeFont(), text, x, y, color, false);
         //? } else {
-        // context.graphics().drawString(font.nativeFont(), text, x, y, color, false);
-        //? }
+         /*context.graphics().drawString(font.nativeFont(), text, x, y, color, false);
+        *///? }
     }
 
     public static void drawString(UiRenderContext context, UiFont font, UiText text, int x, int y, int color) {
@@ -43,8 +43,8 @@ public final class RenderUtil {
         //? >=26.1 {
         context.graphics().text(font.nativeFont(), text.nativeComponent(), x, y, color, false);
         //? } else {
-        // context.graphics().drawString(font.nativeFont(), text.nativeComponent(), x, y, color, false);
-        //? }
+         /*context.graphics().drawString(font.nativeFont(), text.nativeComponent(), x, y, color, false);
+        *///? }
     }
 
     public static void drawCenteredString(UiRenderContext context, UiFont font, String text, int centerX, int y, int color) {
@@ -54,12 +54,16 @@ public final class RenderUtil {
         //? >=26.1 {
         context.graphics().text(font.nativeFont(), text, centerX - font.width(text) / 2, y, color, false);
         //? } else {
-        // context.graphics().drawString(font.nativeFont(), text, centerX - font.width(text) / 2, y, color, false);
-        //? }
+         /*context.graphics().drawString(font.nativeFont(), text, centerX - font.width(text) / 2, y, color, false);
+        *///? }
     }
 
     public static void blit(UiRenderContext context, UiRenderPipeline pipeline, UiTextureId texture, int x, int y, int u, int v, int width, int height, int texWidth, int texHeight) {
-        context.graphics().blit(pipeline.nativePipeline(), texture.nativeId(), x, y, u, v, width, height, texWidth, texHeight);
+        //? >=1.21.2 {
+         context.graphics().blit(pipeline.nativePipeline(), texture.nativeId(), x, y, u, v, width, height, texWidth, texHeight);
+        //? } else {
+        /*context.graphics().blit(texture.nativeId(), x, y, u, v, width, height, texWidth, texHeight);
+        *///? }
     }
 
     public static void drawBorder(UiRenderContext context, int x, int y, int width, int height, int color) {
@@ -88,12 +92,12 @@ public final class RenderUtil {
         // context.graphics().drawString(font.nativeFont(), text, 0, 0, color, false);
         // context.graphics().pose().popMatrix();
         //? } else {
-        // context.graphics().pose().pushPose();
-        // context.graphics().pose().translate(x, y, 0);
-        // context.graphics().pose().scale(scale, scale, 1);
-        // context.graphics().drawString(font.nativeFont(), text, 0, 0, color, false);
-        // context.graphics().pose().popPose();
-        //? }
+         /*context.graphics().pose().pushPose();
+         context.graphics().pose().translate(x, y, 0);
+         context.graphics().pose().scale(scale, scale, 1);
+         context.graphics().drawString(font.nativeFont(), text, 0, 0, color, false);
+         context.graphics().pose().popPose();
+        *///? }
 
 
     }

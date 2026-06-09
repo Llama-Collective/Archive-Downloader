@@ -6,14 +6,14 @@ import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import com.andrews.archivedownloader.wrapper.text.UiText;
 
 //? <1.21.11 {
-// import net.minecraft.client.gui.Font;
-//? }
+ /*import net.minecraft.client.gui.Font;
+*///? }
 
 //? >=26.1 {
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 //? } else {
-// import net.minecraft.client.gui.GuiGraphics;
-//? }
+ /*import net.minecraft.client.gui.GuiGraphics;
+*///? }
 
 import net.minecraft.client.gui.components.Button;
 
@@ -34,11 +34,11 @@ public abstract class UiButtonBase extends Button {
     // renderContents(UiRenderContext.from(context), mouseX, mouseY, delta);
     // }
     //? } else {
-    // @Override
-    // public void renderString(GuiGraphics context, Font font, int color) {
-    //     drawText(UiRenderContext.from(context), new UiFont(font), color);
-    // }
-    //? }
+     /*@Override
+     public void renderString(GuiGraphics context, Font font, int color) {
+         drawText(UiRenderContext.from(context), new UiFont(font), color);
+     }
+    *///? }
 
     protected abstract void drawText(UiRenderContext context, UiFont font, int color);
 
@@ -46,8 +46,8 @@ public abstract class UiButtonBase extends Button {
         //? >=26.1 {
         super.extractWidgetRenderState(context.graphics(), mouseX, mouseY, delta);
         //? } else {
-        // super.render(context.graphics(), mouseX, mouseY, delta);
-        //? }
+         /*super.render(context.graphics(), mouseX, mouseY, delta);
+        *///? }
     }
 
     protected void renderContents(UiRenderContext context, int mouseX, int mouseY, float delta) {

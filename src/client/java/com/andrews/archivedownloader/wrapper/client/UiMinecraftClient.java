@@ -71,12 +71,22 @@ public final class UiMinecraftClient {
     }
 
     public void showBasicToast(String title, String body) {
+        //? >=1.21.2 {
+        
         if (nativeClient.getToastManager() == null) {
             return;
         }
         FormattedText titleText = FormattedText.of(title != null ? title : "");
         FormattedText bodyText = (body != null && !body.isBlank()) ? FormattedText.of(body) : null;
         nativeClient.execute(() -> nativeClient.getToastManager().addToast(new UiBasicToast(titleText, bodyText)));
+        //? } else {
+        /*if (nativeClient.getToasts() == null) {
+            return;
+        }
+        FormattedText titleText = FormattedText.of(title != null ? title : "");
+        FormattedText bodyText = (body != null && !body.isBlank()) ? FormattedText.of(body) : null;
+        nativeClient.execute(() -> nativeClient.getToasts().addToast(new UiBasicToast(titleText, bodyText)));
+        *///? }
     }
 
     public UiTextureId registerDynamicTexture(String pathPrefix, NativeImage image) {

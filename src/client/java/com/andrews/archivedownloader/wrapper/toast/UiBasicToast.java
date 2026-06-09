@@ -8,11 +8,15 @@ import net.minecraft.client.gui.Font;
 //? >=26.1 {
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 //? } else {
-// import net.minecraft.client.gui.GuiGraphics;
-//? }
+ /*import net.minecraft.client.gui.GuiGraphics;
+*///? }
 
 import net.minecraft.client.gui.components.toasts.Toast;
+//? >=1.21.2 {
 import net.minecraft.client.gui.components.toasts.ToastManager;
+//? } else {
+ /*import net.minecraft.client.gui.components.toasts.ToastComponent;
+*///? }
 import net.minecraft.network.chat.FormattedText;
 import net.minecraft.util.FormattedCharSequence;
 
@@ -50,12 +54,23 @@ public class UiBasicToast implements Toast {
     public void extractRenderState(GuiGraphicsExtractor context, Font textRenderer, long startTime) {
         renderToast(UiRenderContext.from(context), textRenderer, startTime);
     }
-    //? } else {
-    // @Override
-    // public void render(GuiGraphics context, Font textRenderer, long startTime) {
-    //     renderToast(UiRenderContext.from(context), textRenderer, startTime);
-    // }
-    //?}
+    //? } else if >=1.21.2 {
+    //  @Override
+    //  public void render(GuiGraphics context, Font textRenderer, long startTime) {
+    //      renderToast(UiRenderContext.from(context), textRenderer, startTime);
+    //  }
+    //?} else {
+     /*@Override
+     public Visibility render(GuiGraphics context, ToastComponent component, long startTime) {
+         if (this.startTime < 0L) {
+             this.startTime = startTime;
+         }
+         double duration = displayMillis * component.getNotificationDisplayTimeMultiplier();
+         visibility = (startTime - this.startTime) >= duration ? Visibility.HIDE : Visibility.SHOW;
+         renderToast(UiRenderContext.from(context), component.getMinecraft().font, startTime);
+         return visibility;
+     }
+    *///? }
 
 
     public void renderToast(UiRenderContext contextWrapper, Font textRenderer, long startTime) {
@@ -77,15 +92,15 @@ public class UiBasicToast implements Toast {
             y += 9;
         }
         //? } else {
-        // for (int i = 0; i < wrappedTitle.size(); i++) {
-        //     context.drawString(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFFFF, false);
-        //     y += 9;
-        // }
-        // for (var line : wrappedBody) {
-        //     context.drawString(textRenderer, line, 12, y, 0xFFAAAAAA, false);
-        //     y += 9;
-        // }
-        //? }
+         /*for (int i = 0; i < wrappedTitle.size(); i++) {
+             context.drawString(textRenderer, wrappedTitle.get(i), 12, y, 0xFFFFFFFF, false);
+             y += 9;
+         }
+         for (var line : wrappedBody) {
+             context.drawString(textRenderer, line, 12, y, 0xFFAAAAAA, false);
+             y += 9;
+         }
+        *///? }
     }
 
     @Override
@@ -98,6 +113,7 @@ public class UiBasicToast implements Toast {
         return computedHeight;
     }
 
+    //? >=1.21.2 {
     @Override
     public Visibility getWantedVisibility() {
         return visibility;
@@ -111,4 +127,5 @@ public class UiBasicToast implements Toast {
         double duration = displayMillis * manager.getNotificationDisplayTimeMultiplier();
         visibility = (time - startTime) >= duration ? Visibility.HIDE : Visibility.SHOW;
     }
+    //? }
 }

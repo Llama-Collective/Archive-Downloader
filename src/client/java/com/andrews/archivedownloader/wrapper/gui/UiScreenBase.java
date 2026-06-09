@@ -7,8 +7,8 @@ import com.andrews.archivedownloader.wrapper.text.UiText;
 //? >=26.1 {
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 //? } else {
-// import net.minecraft.client.gui.GuiGraphics;
-//? }
+ /*import net.minecraft.client.gui.GuiGraphics;
+*///? }
 
 
 import net.minecraft.client.gui.screens.Screen;
@@ -50,11 +50,11 @@ public abstract class UiScreenBase extends Screen {
         renderScreen(UiRenderContext.from(context), mouseX, mouseY, delta);
     }
     //? } else {
-    // @Override
-    // public final void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
-    //     renderScreen(UiRenderContext.from(context), mouseX, mouseY, delta);
-    // }
-    //? }
+     /*@Override
+     public final void render(GuiGraphics context, int mouseX, int mouseY, float delta) {
+         renderScreen(UiRenderContext.from(context), mouseX, mouseY, delta);
+     }
+    *///? }
 
     protected void renderScreen(UiRenderContext context, int mouseX, int mouseY, float delta) {
         //? >=26.1 {

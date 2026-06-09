@@ -11,9 +11,15 @@ import java.util.function.Function;
 
 public enum UiRenderPipeline {
     //? >=1.21.6 {
-    GUI_TEXTURED(RenderPipelines.GUI_TEXTURED);
+     GUI_TEXTURED(RenderPipelines.GUI_TEXTURED);
+    //? } else if >=1.21.2 {
+    // GUI_TEXTURED(RenderType::guiTextured);
+    //? } else {
+    /*GUI_TEXTURED(null);
+    *///? }
 
-    private final RenderPipeline nativePipeline;
+    //? >=1.21.6 {
+     private final RenderPipeline nativePipeline;
 
     UiRenderPipeline(RenderPipeline nativePipeline) {
         this.nativePipeline = nativePipeline;
@@ -23,9 +29,7 @@ public enum UiRenderPipeline {
         return nativePipeline;
     }
     //? } else {
-    /*GUI_TEXTURED(RenderType::guiTextured);
-
-    private final Function<Identifier, RenderType> nativePipeline;
+    /*private final Function<Identifier, RenderType> nativePipeline;
 
     UiRenderPipeline(Function<Identifier, RenderType> nativePipeline) {
         this.nativePipeline = nativePipeline;
