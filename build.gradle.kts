@@ -49,10 +49,6 @@ dependencies {
     
     if (mcVersion == "1.21.2") {
         // No 1.21.2 version of worldedit
-    } else if (mcVersion == "26.1.2") {
-        // beta release
-        // use DjiTrN5B
-        modImplementation("maven.modrinth:1u6JkXh5:DjiTrN5B")
     } else {
         modImplementation(fletchingTable.modrinth("worldedit", mcVersion))
     }
