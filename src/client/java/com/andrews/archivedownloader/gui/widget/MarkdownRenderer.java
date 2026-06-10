@@ -588,12 +588,12 @@ public class MarkdownRenderer implements UiEventListener {
     }
 
     private void appendOrderedList(OrderedList list, TextStyle style, int listDepth) {
-        int index = list.getStartNumber();
+        int index = list.getMarkerStartNumber();
         for (Node child = list.getFirstChild(); child != null; child = child.getNext()) {
             if (!(child instanceof ListItem listItem)) {
                 continue;
             }
-            if (index > list.getStartNumber()) {
+            if (index > list.getMarkerStartNumber()) {
                 addBreak(1);
             }
             String prefix = "  ".repeat(Math.max(0, listDepth)) + index + ". ";

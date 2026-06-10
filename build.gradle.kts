@@ -49,7 +49,7 @@ dependencies {
     
     if (mcVersion == "1.21.2") {
         // No 1.21.2 version of worldedit
-    } else if (mcVersion == "26.1" || mcVersion == "26.1.1" || mcVersion == "26.1.2") {
+    } else if (mcVersion == "26.1.2") {
         // beta release
         // use DjiTrN5B
         modImplementation("maven.modrinth:1u6JkXh5:DjiTrN5B")
@@ -97,6 +97,7 @@ tasks {
         inputs.property("name", project.property("mod.name"))
         inputs.property("version", project.property("mod.version"))
         inputs.property("minecraft", project.property("mod.mc_dep"))
+        inputs.property("java", requiredJava.majorVersion)
 
         val props = mapOf(
             "id" to project.property("mod.id"),
@@ -108,6 +109,12 @@ tasks {
         filesMatching("fabric.mod.json") { expand(props) }
 
         val mixinJava = "JAVA_${requiredJava.majorVersion}"
+        filesMatching("*.mixins.json") { expand("java" to mixinJava) }
+    }
+
+    named<ProcessResources>("processClientResources") {
+        val mixinJava = "JAVA_${requiredJava.majorVersion}"
+        inputs.property("java", mixinJava)
         filesMatching("*.mixins.json") { expand("java" to mixinJava) }
     }
 

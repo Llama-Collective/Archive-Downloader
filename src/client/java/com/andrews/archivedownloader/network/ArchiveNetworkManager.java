@@ -2152,14 +2152,6 @@ public class ArchiveNetworkManager {
 		return shouldUseLfs ? buildMediaUrl(server, relPath) : buildRawUrl(server, relPath);
 	}
 
-	private static String resolveAttachmentPath(ServerEntry server, String path, String channelPath, String entryPath) {
-		if (path == null || path.isEmpty()) {
-			return null;
-		}
-		String basePath = normalizePath(channelPath) + "/" + normalizePath(entryPath);
-		return buildRawUrl(server, basePath + "/" + path);
-	}
-
 	static String buildRawUrl(ServerEntry server, String path) {
 		ServerEntry target = normalizeServer(server);
 		String owner = target.owner() != null && !target.owner().isBlank() ? target.owner() : "Storage-Tech-2";
@@ -2505,8 +2497,10 @@ public class ArchiveNetworkManager {
 
 	private static class DictionaryIndexData {
 		String id;
+		@SuppressWarnings("unused")
 		List<String> terms;
 		String summary;
+		@SuppressWarnings("unused")
 		Long updatedAt;
 	}
 
@@ -2526,7 +2520,6 @@ public class ArchiveNetworkManager {
 	private static class ArchiveImageData {
 		@SuppressWarnings("unused")
 		String name;
-		@SuppressWarnings("unused")
 		String url;
 		String description;
 		@SuppressWarnings("unused")

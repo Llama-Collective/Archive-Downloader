@@ -103,7 +103,13 @@ public final class UiMinecraftClient {
 
     private UiTextureId registerDynamicTextureNow(String pathPrefix, NativeImage image) {
         String id = UUID.randomUUID().toString().replace("-", "");
-        Identifier texId = Identifier.fromNamespaceAndPath("archivedownloader", pathPrefix + "/" + id);
+
+        //? >=1.21 {
+         Identifier texId = Identifier.fromNamespaceAndPath("archivedownloader", pathPrefix + "/" + id);
+        //? } else {
+        /*Identifier texId = new Identifier("archivedownloader", pathPrefix + "/" + id);
+        *///? }
+
         //? >=1.21.5 {
          nativeClient.getTextureManager().register(texId, new DynamicTexture(() -> pathPrefix, image));
         //? } else {

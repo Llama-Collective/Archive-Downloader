@@ -159,17 +159,6 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
         return markdown.toString().trim();
     }
 
-    private static String sanitizeLabel(String label) {
-        if (label == null || label.isBlank()) {
-            return "Reference";
-        }
-        return label
-            .replace("[", "\\[")
-            .replace("]", "\\]")
-            .replace("(", "\\(")
-            .replace(")", "\\)");
-    }
-
     private void initCloseButton() {
         if (closeButton == null) {
             closeButton = new CustomButton(0, 0, 72, UITheme.Dimensions.BUTTON_HEIGHT, UiText.of("Close"), button -> onClose.run());
