@@ -109,6 +109,8 @@ tasks {
     }
 
     named<ProcessResources>("processClientResources") {
+        exclude("fabric.mod.json")
+
         val mixinJava = "JAVA_${requiredJava.majorVersion}"
         inputs.property("java", mixinJava)
         filesMatching("*.mixins.json") { expand("java" to mixinJava) }
