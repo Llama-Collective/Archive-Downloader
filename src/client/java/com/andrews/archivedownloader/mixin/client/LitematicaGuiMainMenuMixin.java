@@ -39,7 +39,13 @@ public abstract class LitematicaGuiMainMenuMixin extends GuiBase {
     private void archive$createArchiveButton(int x, int y, int width) {
         String label = "Archive Browser";
         ButtonGeneric button = new ButtonGeneric(x, y, width, 20, label, null, new String[] { "Open the Llama Collective archive browser" });
-        addButton(button, (btn, mouseButton) -> Minecraft.getInstance().setScreen(new ArchiveDownloaderScreen()));
+        addButton(button, (btn, mouseButton) -> 
+            //? >=26.2 {
+            Minecraft.getInstance().gui.setScreen(new ArchiveDownloaderScreen())
+            //? } else {
+            // Minecraft.getInstance().setScreen(new ArchiveDownloaderScreen())
+            //? }
+        );
     }
 
     @Unique

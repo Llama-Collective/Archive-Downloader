@@ -61,7 +61,11 @@ public final class UiMinecraftClient {
     }
 
     public boolean isCurrentScreen(Object nativeScreen) {
-        return nativeClient.screen == nativeScreen;
+        //? >=26.2 {
+        return nativeClient.gui.screen() == nativeScreen;
+        //? } else {
+        // return nativeClient.screen == nativeScreen;
+        //? }
     }
 
     public void playButtonDownSound(Button button) {
@@ -71,14 +75,17 @@ public final class UiMinecraftClient {
     }
 
     public void showBasicToast(String title, String body) {
-        //? >=1.21.2 {
-        
-        if (nativeClient.getToastManager() == null) {
-            return;
-        }
+        //? >=26.2 {
         FormattedText titleText = FormattedText.of(title != null ? title : "");
         FormattedText bodyText = (body != null && !body.isBlank()) ? FormattedText.of(body) : null;
-        nativeClient.execute(() -> nativeClient.getToastManager().addToast(new UiBasicToast(titleText, bodyText)));
+        nativeClient.execute(() -> nativeClient.gui.toastManager().addToast(new UiBasicToast(titleText, bodyText)));
+        //? } else if >=1.21.2 {
+        // if (nativeClient.getToastManager() == null) {
+        //     return;
+        // }
+        // FormattedText titleText = FormattedText.of(title != null ? title : "");
+        // FormattedText bodyText = (body != null && !body.isBlank()) ? FormattedText.of(body) : null;
+        // nativeClient.execute(() -> nativeClient.getToastManager().addToast(new UiBasicToast(titleText, bodyText)));
         //? } else {
         /*if (nativeClient.getToasts() == null) {
             return;

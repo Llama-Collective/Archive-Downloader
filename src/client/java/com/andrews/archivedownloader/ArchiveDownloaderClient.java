@@ -23,10 +23,18 @@ public class ArchiveDownloaderClient implements ClientModInitializer {
 	}
 
 	private static void toggleArchiveDownloaderScreen(Minecraft client) {
-		if (client.screen instanceof ArchiveDownloaderScreen) {
-			client.setScreen(null);
+		//? >=26.2 {
+		if (client.gui.screen() instanceof ArchiveDownloaderScreen) {
+			client.gui.setScreen(null);
 		} else {
-			client.setScreen(new ArchiveDownloaderScreen());
+			client.gui.setScreen(new ArchiveDownloaderScreen());
 		}
+	    //? } else {
+		// if (client.screen instanceof ArchiveDownloaderScreen) {
+		// 	client.setScreen(null);
+		// } else {
+		// 	client.setScreen(new ArchiveDownloaderScreen());
+		// }
+		//? }
 	}
 }
