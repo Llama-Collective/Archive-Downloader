@@ -1,2 +1,2 @@
-## 1.0.22
-- Add support for Minecraft 26.2
+## 1.0.23
+- Hardened security for the mod, it no longer allows downloads with mismatched hashes and filenames are normalized in the client. These changes are a precaution in case an archive gets compromised.
