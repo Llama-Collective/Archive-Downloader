@@ -269,6 +269,12 @@ public class ArchiveNetworkManager {
 		}
 
 		String url = apiBase + "/submissions?page=1&pageSize=1";
+		if (!isHttpsUrl(url)) {
+			return CompletableFuture.completedFuture(new ApiTokenValidationResult(
+				false,
+				"Refusing to send the token over an insecure (non-HTTPS) connection."
+			));
+		}
 		HttpRequest request = HttpRequest.newBuilder()
 			.uri(URI.create(url))
 			.timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
@@ -334,7 +340,9 @@ public class ArchiveNetworkManager {
 		if (builder == null) {
 			return null;
 		}
-		if (!isApiUrlForServer(server, url)) {
+		// Attach the bearer token only when the target URL both belongs to this server's API host and
+		// is HTTPS, so the token is never sent to a redirect target or over a cleartext connection.
+		if (!isApiUrlForServer(server, url) || !isHttpsUrl(url)) {
 			return builder;
 		}
 		String token = normalizeApiTokenValue(DownloadSettings.getInstance().getApiToken(normalizeServer(server)));
@@ -342,6 +350,18 @@ public class ArchiveNetworkManager {
 			builder.header("Authorization", "Bearer " + token);
 		}
 		return builder;
+	}
+
+	private static boolean isHttpsUrl(String url) {
+		if (url == null) {
+			return false;
+		}
+		try {
+			String scheme = URI.create(url).getScheme();
+			return scheme != null && scheme.equalsIgnoreCase("https");
+		} catch (Exception e) {
+			return false;
+		}
 	}
 
 	public static CompletableFuture<ArchivePostDetail> getPostDetails(ServerEntry server, ArchivePostSummary summary) {

@@ -222,7 +222,10 @@ public final class ServerDictionary {
                 continue;
             }
             String fallbackId = "server-" + index++;
-            String id = sanitizeNonBlank(entry.id(), fallbackId);
+            // id and downloadFolder are used to build on-disk paths (caches, download folders), so they
+            // must be reduced to a single safe path segment before use — a remote mod_data.json must
+            // not be able to steer writes outside the mod's directories via traversal/absolute paths.
+            String id = sanitizePathToken(entry.id(), fallbackId);
             String name = sanitizeNonBlank(entry.name(), id.toUpperCase(Locale.ROOT));
             String owner = safeTrim(entry.owner());
             String repo = safeTrim(entry.repo());
@@ -230,7 +233,7 @@ public final class ServerDictionary {
             String description = safeTrim(entry.description());
             String discordInviteUrl = safeTrim(entry.discordInviteUrl());
             String submissionsUrl = safeTrim(entry.submissionsUrl());
-            String downloadFolder = sanitizeNonBlank(entry.downloadFolder(), id);
+            String downloadFolder = sanitizePathToken(entry.downloadFolder(), id);
             String websiteBase = safeTrim(entry.websiteBase());
             String apiBase = safeTrim(entry.apiBase());
             sanitized.add(new ServerEntry(
@@ -253,6 +256,23 @@ public final class ServerDictionary {
     private static String sanitizeNonBlank(String value, String fallback) {
         String trimmed = safeTrim(value);
         return trimmed.isEmpty() ? fallback : trimmed;
+    }
+
+    /**
+     * Collapses a remote value to a single safe path segment: every character outside
+     * {@code [A-Za-z0-9._-]} (including all path separators, drive letters and UNC markers) is
+     * replaced, and the pure traversal tokens "." / ".." are rejected. The result can never escape
+     * the directory it is appended to via {@code Path.resolve}.
+     */
+    private static String sanitizePathToken(String value, String fallback) {
+        String slug = safeTrim(value).replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (slug.isEmpty() || slug.equals(".") || slug.equals("..")) {
+            return fallback;
+        }
+        if (slug.length() > 100) {
+            slug = slug.substring(0, 100);
+        }
+        return slug;
     }
 
     private static String safeTrim(String value) {

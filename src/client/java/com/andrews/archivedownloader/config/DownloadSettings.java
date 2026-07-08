@@ -369,8 +369,25 @@ public class DownloadSettings {
 			try (FileWriter writer = new FileWriter(configFile)) {
 				GSON.toJson(config, writer);
 			}
+			restrictPermissions(configFile.toPath());
 		} catch (IOException e) {
 			System.err.println("Failed to save settings: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * Best-effort tightening of the settings file to owner-only access. The file stores API bearer
+	 * tokens, so on POSIX hosts it should not be readable by other local users. On non-POSIX
+	 * filesystems (e.g. Windows) this is a no-op and access is governed by the user profile ACL.
+	 */
+	private void restrictPermissions(Path path) {
+		try {
+			if (Files.getFileAttributeView(path, java.nio.file.attribute.PosixFileAttributeView.class) != null) {
+				Files.setPosixFilePermissions(path, java.util.EnumSet.of(
+					java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+					java.nio.file.attribute.PosixFilePermission.OWNER_WRITE));
+			}
+		} catch (Exception ignored) {
 		}
 	}
 }

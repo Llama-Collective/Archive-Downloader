@@ -44,6 +44,8 @@ public class AttachmentManager {
     private static final long MAX_TOTAL_UNZIPPED_BYTES = 1_000_000_000L; // ~1GB
     private static final long MAX_SINGLE_ENTRY_BYTES = 512L * 1024 * 1024; // 512MB per entry
     private static final int MAX_ENTRY_COUNT = 20000;
+    private static final int MAX_ZIP_DEPTH = 4; // guards against nested-zip / zip-quine recursion
+    private static final int MAX_DOWNLOAD_REDIRECTS = 5;
     private static final String FASTSTREAM_PREFIX = "https://faststream.online/player/#";
 
     private final UiMinecraftClient client;
@@ -190,26 +192,62 @@ public class AttachmentManager {
 
             String encodedUrl = downloadUrl.replace(" ", "%20");
 
+            // Follow redirects manually (Redirect.NEVER) so the API Authorization header is
+            // re-evaluated for every hop and never forwarded to a cross-host redirect target.
             HttpClient httpClient = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(30))
-                    .followRedirects(HttpClient.Redirect.ALWAYS)
+                    .followRedirects(HttpClient.Redirect.NEVER)
                     .build();
 
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                    .uri(URI.create(encodedUrl))
-                    .GET()
-                    .header("User-Agent", com.andrews.archivedownloader.network.ArchiveNetworkManager.USER_AGENT);
-            com.andrews.archivedownloader.network.ArchiveNetworkManager.applyApiAuthorization(requestBuilder, server, encodedUrl);
-            HttpRequest request = requestBuilder.build();
-
             System.out.println("[Download] Sending request...");
-            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+            CompletableFuture<HttpResponse<byte[]>> responseFuture = new CompletableFuture<>();
+            sendWithManagedRedirects(httpClient, encodedUrl, MAX_DOWNLOAD_REDIRECTS, responseFuture);
+            responseFuture
                     .thenAccept(response -> handleDownloadResponse(file, response, preferWorldEdit))
                     .exceptionally(e -> {
                         handleDownloadError(e);
                         return null;
                     });
         });
+    }
+
+    /**
+     * Sends the request and follows up to {@code redirectsRemaining} redirects manually. The API
+     * authorization is re-applied per hop via {@link com.andrews.archivedownloader.network.ArchiveNetworkManager#applyApiAuthorization},
+     * which only attaches the bearer token when the (post-redirect) URL still belongs to the
+     * configured API host — so the token is never leaked to a third-party redirect destination.
+     */
+    private void sendWithManagedRedirects(HttpClient httpClient, String url, int redirectsRemaining,
+            CompletableFuture<HttpResponse<byte[]>> resultFuture) {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .GET()
+                .header("User-Agent", com.andrews.archivedownloader.network.ArchiveNetworkManager.USER_AGENT);
+        com.andrews.archivedownloader.network.ArchiveNetworkManager.applyApiAuthorization(requestBuilder, server, url);
+        HttpRequest request = requestBuilder.build();
+        httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+                .thenAccept(response -> {
+                    int status = response.statusCode();
+                    if (status >= 300 && status < 400 && redirectsRemaining > 0) {
+                        java.util.Optional<String> location = response.headers().firstValue("Location");
+                        if (location.isPresent() && !location.get().isBlank()) {
+                            String nextUrl;
+                            try {
+                                nextUrl = URI.create(url).resolve(location.get().replace(" ", "%20")).toString();
+                            } catch (Exception ex) {
+                                resultFuture.complete(response);
+                                return;
+                            }
+                            sendWithManagedRedirects(httpClient, nextUrl, redirectsRemaining - 1, resultFuture);
+                            return;
+                        }
+                    }
+                    resultFuture.complete(response);
+                })
+                .exceptionally(e -> {
+                    resultFuture.completeExceptionally(e);
+                    return null;
+                });
     }
 
     private void handleDownloadResponse(ArchiveAttachment file, HttpResponse<byte[]> response, boolean preferWorldEdit) {
@@ -244,6 +282,18 @@ public class AttachmentManager {
         String expectedHash = normalizeSha256(file != null ? file.hash() : null);
         String actualHash = expectedHash != null ? computeSha256(response.body()) : null;
         boolean hashMismatch = expectedHash != null && actualHash != null && !expectedHash.equals(actualHash);
+
+        // Fail closed: when the server advertises a SHA-256 and the bytes do not match it, refuse to
+        // write/extract/auto-load them at all rather than saving suspect content with a warning.
+        if (hashMismatch) {
+            String rejectedName = file != null && file.name() != null ? file.name() : "download";
+            System.err.println("[Download] SHA-256 mismatch; refusing to save " + rejectedName);
+            client.execute(() -> {
+                downloadStatus = "✗ Error: integrity check failed (SHA-256 mismatch)";
+                showToast("Download blocked", rejectedName + " did not match its expected SHA-256");
+            });
+            return;
+        }
 
         processAttachmentBytes(file, response.body(), false)
                 .thenCompose(result -> mirrorToWorldEditIfNeededAsync(result.path(), preferWorldEdit)
@@ -509,11 +559,50 @@ public class AttachmentManager {
     }
 
     private String resolveAttachmentBaseName(ArchiveAttachment attachment, String defaultExtension, String fallbackName) {
-        String baseName = attachment != null && attachment.name() != null ? attachment.name() : fallbackName;
+        String baseName = sanitizeFileName(attachment != null ? attachment.name() : null, fallbackName);
         if (!baseName.contains(".")) {
             baseName += defaultExtension;
         }
         return baseName;
+    }
+
+    /**
+     * Reduces a remote-supplied attachment name to a safe bare filename: any directory component,
+     * absolute/UNC/drive prefix, control character, or reserved character is stripped, and the pure
+     * traversal tokens "." / ".." are rejected. This prevents a malicious archive from steering a
+     * download outside its target directory via {@code Path.resolve}.
+     */
+    private String sanitizeFileName(String rawName, String fallback) {
+        if (rawName == null) {
+            return fallback;
+        }
+        String candidate = rawName.replace('\\', '/').trim();
+        int slash = candidate.lastIndexOf('/');
+        if (slash >= 0) {
+            candidate = candidate.substring(slash + 1);
+        }
+        candidate = candidate.replaceAll("[\\x00-\\x1F:*?\"<>|]", "_").trim();
+        if (candidate.isEmpty() || candidate.equals(".") || candidate.equals("..")) {
+            return fallback;
+        }
+        if (candidate.length() > 200) {
+            candidate = candidate.substring(0, 200);
+        }
+        return candidate;
+    }
+
+    /**
+     * Resolves {@code fileName} against {@code baseDir} and asserts the result stays within it.
+     * Defense-in-depth companion to {@link #sanitizeFileName}: even if an unsanitized name reaches
+     * here, a traversal is rejected rather than written.
+     */
+    private Path resolveContained(Path baseDir, String fileName) throws Exception {
+        Path base = baseDir.toAbsolutePath().normalize();
+        Path resolved = base.resolve(fileName).normalize();
+        if (!resolved.startsWith(base)) {
+            throw new java.io.IOException("Refusing to resolve path outside target directory: " + fileName);
+        }
+        return resolved;
     }
 
     private Path findByHashInDirectory(Path dir, String baseName, String expectedHash) {
@@ -754,10 +843,12 @@ public class AttachmentManager {
                 Files.createDirectories(baseTargetDir);
 
                 if (isWorldDownload) {
-                    String worldName = (attachment != null && attachment.name() != null ? attachment.name() : "world")
-                            .replaceAll("[\\\\/:*?\"<>|]", "_");
+                    String worldName = sanitizeFileName(attachment != null ? attachment.name() : null, "world");
                     if (worldName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
                         worldName = worldName.substring(0, worldName.length() - 4);
+                        if (worldName.isEmpty()) {
+                            worldName = "world";
+                        }
                     }
                     ExtractionOutcome outcome = extractWorldsFromZip(data, baseTargetDir, worldName);
                     Path primaryWorld = outcome.primaryWorldDir() != null ? outcome.primaryWorldDir() : baseTargetDir;
@@ -765,7 +856,7 @@ public class AttachmentManager {
                     return new SaveResult(primaryName, primaryWorld, true, outcome.worldNames());
                 }
 
-                String baseName = attachment != null && attachment.name() != null ? attachment.name() : "download";
+                String baseName = sanitizeFileName(attachment != null ? attachment.name() : null, "download");
 
                 Path existingIdentical = findIdenticalFile(baseTargetDir, baseName, data);
                 if (existingIdentical != null) {
@@ -798,7 +889,7 @@ public class AttachmentManager {
     }
 
     private Path ensureUniqueName(Path dir, String fileName) throws Exception {
-        Path candidate = dir.resolve(fileName);
+        Path candidate = resolveContained(dir, fileName);
         String baseName = fileName;
         int counter = 1;
         int dot = baseName.lastIndexOf('.');
@@ -806,17 +897,17 @@ public class AttachmentManager {
         String ext = dot > 0 ? baseName.substring(dot) : "";
 
         while (Files.exists(candidate)) {
-            candidate = dir.resolve(nameOnly + "_" + counter + ext);
+            candidate = resolveContained(dir, nameOnly + "_" + counter + ext);
             counter++;
         }
         return candidate;
     }
 
     private Path ensureUniqueDirectory(Path dir, String name) throws Exception {
-        Path candidate = dir.resolve(name);
+        Path candidate = resolveContained(dir, name);
         int counter = 1;
         while (Files.exists(candidate)) {
-            candidate = dir.resolve(name + "_" + counter);
+            candidate = resolveContained(dir, name + "_" + counter);
             counter++;
         }
         return candidate;
@@ -824,14 +915,17 @@ public class AttachmentManager {
 
     private ExtractionOutcome extractWorldsFromZip(byte[] zipBytes, Path baseTargetDir, String defaultWorldName) throws Exception {
         ExtractionStats stats = new ExtractionStats();
-        extractWorldsFromZipInternal(zipBytes, baseTargetDir, defaultWorldName, stats, false);
+        extractWorldsFromZipInternal(zipBytes, baseTargetDir, defaultWorldName, stats, false, 0);
         List<String> worldNames = stats.worldDirs.stream()
             .map(path -> path.getFileName() != null ? path.getFileName().toString() : "world")
             .toList();
         return new ExtractionOutcome(stats.primaryWorldDir != null ? stats.primaryWorldDir : baseTargetDir, worldNames);
     }
 
-    private void extractWorldsFromZipInternal(byte[] zipBytes, Path baseTargetDir, String defaultWorldName, ExtractionStats stats, boolean isNested) throws Exception {
+    private void extractWorldsFromZipInternal(byte[] zipBytes, Path baseTargetDir, String defaultWorldName, ExtractionStats stats, boolean isNested, int depth) throws Exception {
+        if (depth > MAX_ZIP_DEPTH) {
+            throw new IllegalStateException("Archive nesting too deep");
+        }
         Path tempZip = Files.createTempFile("ldl_wdl_", ".zip");
         try {
             Files.write(tempZip, zipBytes, StandardOpenOption.TRUNCATE_EXISTING);
@@ -894,7 +988,7 @@ public class AttachmentManager {
                         if (nestedDefaultName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
                             nestedDefaultName = nestedDefaultName.substring(0, nestedDefaultName.length() - 4);
                         }
-                        extractWorldsFromZipInternal(nestedBytes, baseTargetDir, nestedDefaultName, stats, true);
+                        extractWorldsFromZipInternal(nestedBytes, baseTargetDir, nestedDefaultName, stats, true, depth + 1);
                         continue;
                     }
 
@@ -986,7 +1080,9 @@ public class AttachmentManager {
         if (declaredSize > Integer.MAX_VALUE) {
             throw new IllegalStateException("Archive entry size invalid");
         }
-        int initial = declaredSize > 0 ? (int) declaredSize : 8192;
+        // Do not trust the attacker-declared uncompressed size for the initial allocation; cap it
+        // and let the read loop grow the buffer as real bytes arrive (bounded by the limits below).
+        int initial = declaredSize > 0 ? (int) Math.min(declaredSize, 65536L) : 8192;
         byte[] buffer = new byte[initial];
         int offset = 0;
         try (var is = zipFile.getInputStream(entry)) {
