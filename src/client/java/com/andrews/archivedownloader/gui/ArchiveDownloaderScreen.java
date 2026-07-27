@@ -1008,6 +1008,11 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         }
     }
 
+    private void focusSearchField(boolean focused) {
+        searchField.setFocused(focused);
+        this.setFocused(focused ? searchField : null);
+    }
+
     @Override
     protected void renderScreen(UiRenderContext renderContext, int mouseX, int mouseY, float delta) {
         int leftPanelWidth = showChannelPanel ? SIDEBAR_WIDTH : 0;
@@ -1173,14 +1178,14 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         if (button == 0 && searchField != null) {
             if (searchField.isMouseOver(mouseX, mouseY)) {
                 if (mouseEvent.shiftDown()) {
-                    searchField.setFocused(false);
+                    focusSearchField(false);
                     showSemanticSearchConsentPopup();
                     return true;
                 }
-                searchField.setFocused(true);
+                focusSearchField(true);
                 return true;
             } else {
-                searchField.setFocused(false);
+                focusSearchField(false);
             }
         }
 
