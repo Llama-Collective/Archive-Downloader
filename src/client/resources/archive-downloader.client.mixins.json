@@ -1,12 +1,13 @@
 {
-	"required": true,
-	"package": "com.andrews.archivedownloader.mixin.client",
-	"compatibilityLevel": "${java}",
-	"plugin": "com.andrews.archivedownloader.mixin.client.MixinClientPlugin",
-	"client": [
-		"LitematicaGuiMainMenuMixin"
-	],
-	"injectors": {
-		"defaultRequire": 1
+  "required": true,
+  "package": "com.andrews.archivedownloader.mixin.client",
+  "compatibilityLevel": "${java}",
+  "plugin": "com.andrews.archivedownloader.mixin.client.MixinClientPlugin",
+  "client": [
+    "EditBoxAccessor",
+    "LitematicaGuiMainMenuMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
 	}
 }

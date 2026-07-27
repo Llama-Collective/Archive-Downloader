@@ -3,6 +3,9 @@ package com.andrews.archivedownloader.util;
 //? >=1.21.6
  import org.joml.Matrix3x2fStack;
 
+//? <= 1.21.6
+ //import net.minecraft.client.renderer.RenderType;
+
 import com.andrews.archivedownloader.wrapper.client.UiMinecraftClient;
 import com.andrews.archivedownloader.wrapper.gui.UiFont;
 import com.andrews.archivedownloader.wrapper.gui.UiRenderContext;
@@ -12,6 +15,16 @@ import com.andrews.archivedownloader.wrapper.text.UiText;
 
 public final class RenderUtil {
     private RenderUtil() {}
+
+    public static void textHighlight(UiRenderContext context, int x1, int y1, int x2, int y2) {
+        //? >= 1.21.11 {
+        context.graphics().textHighlight(x1, y1, x2, y2, true);
+        //? } else >= 1.21.7 {
+        /*context.graphics().textHighlight(x1, y1, x2, y2);
+        *///? } else {
+        /*context.graphics().fill(RenderType.guiTextHighlight(), x1, y1, x2, y2, -16776961);
+        *///? }
+    }
 
     public static void fillRect(UiRenderContext context, int x1, int y1, int x2, int y2, int color) {
         context.graphics().fill(x1, y1, x2, y2, color);
