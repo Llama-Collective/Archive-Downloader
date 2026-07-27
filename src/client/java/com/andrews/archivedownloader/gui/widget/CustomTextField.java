@@ -41,10 +41,6 @@ public class CustomTextField extends UiTextFieldBase {
 
 	@Override
 	public void insertText(String text) {
-		if ((this.getValue() + text).length() >= 256) {
-			return;
-		}
-
 		super.insertText(text);
 		onChanged();
 	}
