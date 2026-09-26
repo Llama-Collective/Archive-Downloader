@@ -44,7 +44,11 @@ dependencies {
 
     var mcVersion = sc.current.version;
 
-    modImplementation(fletchingTable.modrinth("litematica", mcVersion))
+    if (mcVersion == "26.3") {
+        modImplementation("maven.modrinth:bEpr0Arc:fEqsesPK")
+    } else {
+        modImplementation(fletchingTable.modrinth("litematica", mcVersion))
+    }
     modImplementation(fletchingTable.modrinth("malilib", mcVersion))
     
     if (mcVersion == "1.21.2") {
@@ -183,3 +187,4 @@ publishing {
     }
 }
  */
+

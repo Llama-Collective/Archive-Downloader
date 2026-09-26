@@ -11,7 +11,8 @@ import com.andrews.archivedownloader.wrapper.text.UiText;
 
 import java.util.function.Consumer;
 
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
+import com.andrews.archivedownloader.wrapper.input.UiInput;
 
 public class ApiTokenPopup implements UiRenderable, UiEventListener {
     private static final int MAX_POPUP_WIDTH = 460;
@@ -188,9 +189,9 @@ public class ApiTokenPopup implements UiRenderable, UiEventListener {
         UiMinecraftClient client = UiMinecraftClient.getInstance();
         long windowHandle = client.windowHandle();
         if (windowHandle != 0L) {
-            boolean enterPressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS
-                || GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_KP_ENTER) == GLFW.GLFW_PRESS;
-            boolean escapePressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS;
+            boolean enterPressed = UiInput.isKeyDown(windowHandle, InputConstants.KEY_RETURN)
+                || UiInput.isKeyDown(windowHandle, InputConstants.KEY_NUMPADENTER);
+            boolean escapePressed = UiInput.isKeyDown(windowHandle, InputConstants.KEY_ESCAPE);
 
             if (enterPressed && !wasEnterPressed && !validating) {
                 saveToken();

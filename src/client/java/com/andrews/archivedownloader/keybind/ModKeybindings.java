@@ -9,11 +9,10 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 *///? }
 
 import net.minecraft.client.KeyMapping;
-import org.lwjgl.glfw.GLFW;
 
 public final class ModKeybindings {
 	private static final String KEY_OPEN_MENU = "key.archive-downloader.open_menu";
-	private static final int DEFAULT_KEY = GLFW.GLFW_KEY_N;
+	private static final int DEFAULT_KEY = InputConstants.KEY_N;
 
 	public static KeyMapping openMenuKey;
 
@@ -22,7 +21,11 @@ public final class ModKeybindings {
 		//? >=26.1 {
 		openMenuKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
 				KEY_OPEN_MENU,
-				InputConstants.Type.KEYSYM,
+				//? >=26.3 {
+				InputConstants.Type.KEYBOARD,
+				//? } else {
+				//InputConstants.Type.KEYSYM,
+				//? }
 				DEFAULT_KEY,
 				KeyMapping.Category.MISC
 		));

@@ -1,6 +1,10 @@
 package com.andrews.archivedownloader.gui.widget;
 
-import org.lwjgl.glfw.GLFW;
+//? <26.3
+//import org.lwjgl.glfw.GLFW;
+
+import com.mojang.blaze3d.platform.InputConstants;
+import com.andrews.archivedownloader.wrapper.input.UiInput;
 
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
@@ -98,7 +102,8 @@ public class CustomTextField extends UiTextFieldBase {
 	}
 
 	private void installCharCallback() {
-		long windowHandle = client.windowHandle();
+		//? <26.3 {
+		/*long windowHandle = client.windowHandle();
 		if (windowHandle == 0) return;
 		// Always (re)install our char callback when focusing. Other code may replace
 		// the GLFW char callback, causing typed characters to stop reaching us. By
@@ -109,7 +114,19 @@ public class CustomTextField extends UiTextFieldBase {
 				activeField.onCharTyped((char) codepoint);
 			}
 		});
+		*///? }
 	}
+
+	//? >=26.3 {
+	// These fields manage focus themselves instead of using the screen child list.
+	public static boolean dispatchCharacter(int codepoint) {
+		if (activeField == null || !activeField.isFocused()) return false;
+		for (char c : Character.toChars(codepoint)) {
+			activeField.onCharTyped(c);
+		}
+		return true;
+	}
+	//? }
 
 	private void onCharTyped(char c) {
 		if (c < 32) {
@@ -160,7 +177,7 @@ public class CustomTextField extends UiTextFieldBase {
 			return;
 		}
 
-		boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+		boolean isMouseDown = UiInput.isLeftMouseDown(windowHandle);
 
 		if (!this.getValue().isEmpty() && isMouseDown && !wasClearButtonMouseDown && isOverClearButton(mouseX, mouseY)) {
 			this.setValue("");
@@ -187,8 +204,8 @@ public class CustomTextField extends UiTextFieldBase {
 	}
 
 	private void handleEnterKey(long windowHandle) {
-		boolean isEnterDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ENTER) == GLFW.GLFW_PRESS ||
-				GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_KP_ENTER) == GLFW.GLFW_PRESS;
+		boolean isEnterDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_RETURN) ||
+				UiInput.isKeyDown(windowHandle, InputConstants.KEY_NUMPADENTER);
 
 		if (this.isFocused() && onEnterPressed != null && isEnterDown && !wasEnterDown) {
 			onEnterPressed.run();
@@ -277,17 +294,17 @@ public class CustomTextField extends UiTextFieldBase {
 		String currentText = this.getValue();
 		int cursorPos = this.getCursorPosition();
 
-		boolean ctrlDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
-			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS;
-		boolean superDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SUPER) == GLFW.GLFW_PRESS
-			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SUPER) == GLFW.GLFW_PRESS;
-		boolean shiftDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
-			|| GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
-		boolean isVDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_V) == GLFW.GLFW_PRESS;
-		boolean insertDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_INSERT) == GLFW.GLFW_PRESS;
+		boolean ctrlDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_LCONTROL)
+			|| UiInput.isKeyDown(windowHandle, InputConstants.KEY_RCONTROL);
+		boolean superDown = UiInput.isKeyDown(windowHandle, UiInput.KEY_LEFT_SUPER)
+			|| UiInput.isKeyDown(windowHandle, UiInput.KEY_RIGHT_SUPER);
+		boolean shiftDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_LSHIFT)
+			|| UiInput.isKeyDown(windowHandle, InputConstants.KEY_RSHIFT);
+		boolean isVDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_V);
+		boolean insertDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_INSERT);
 		boolean pastePressed = (ctrlDown || superDown) && isVDown || (shiftDown && insertDown);
 		if (pastePressed && !wasPastePressed) {
-			String clipboard = GLFW.glfwGetClipboardString(windowHandle);
+			String clipboard = client.nativeClient().keyboardHandler.getClipboard();
 			if (clipboard != null && !clipboard.isEmpty()) {
 				String insert = clipboard.replace("\r", "").replace("\n", "");
 				int allowed = Math.max(0, 256 - currentText.length());
@@ -306,7 +323,7 @@ public class CustomTextField extends UiTextFieldBase {
 		}
 		wasPastePressed = pastePressed;
 
-		boolean isBackspaceDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_BACKSPACE) == GLFW.GLFW_PRESS;
+		boolean isBackspaceDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_BACKSPACE);
 		if (backspaceState.shouldTrigger(currentTime, isBackspaceDown) && cursorPos > 0) {
 			String newText = currentText.substring(0, cursorPos - 1) + currentText.substring(cursorPos);
 			this.setValue(newText);
@@ -316,7 +333,7 @@ public class CustomTextField extends UiTextFieldBase {
 			}
 		}
 
-		boolean isDeleteDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_DELETE) == GLFW.GLFW_PRESS;
+		boolean isDeleteDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_DELETE);
 		if (deleteState.shouldTrigger(currentTime, isDeleteDown) && cursorPos < currentText.length()) {
 			String newText = currentText.substring(0, cursorPos) + currentText.substring(cursorPos + 1);
 			this.setValue(newText);
@@ -325,29 +342,29 @@ public class CustomTextField extends UiTextFieldBase {
 			}
 		}
 
-		boolean isLeftDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS;
+		boolean isLeftDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_LEFT);
 		if (leftState.shouldTrigger(currentTime, isLeftDown) && cursorPos > 0) {
 			this.moveCursorTo(cursorPos - 1, false);
 		}
 
-		boolean isRightDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_RIGHT) == GLFW.GLFW_PRESS;
+		boolean isRightDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_RIGHT);
 		if (rightState.shouldTrigger(currentTime, isRightDown) && cursorPos < currentText.length()) {
 			this.moveCursorTo(cursorPos + 1, false);
 		}
 
-		boolean isHomeDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_HOME) == GLFW.GLFW_PRESS;
+		boolean isHomeDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_HOME);
 		if (isHomeDown && !wasHomePressed) {
 			this.moveCursorTo(0, false);
 		}
 		wasHomePressed = isHomeDown;
 
-		boolean isEndDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_END) == GLFW.GLFW_PRESS;
+		boolean isEndDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_END);
 		if (isEndDown && !wasEndPressed) {
 			this.moveCursorTo(currentText.length(), false);
 		}
 		wasEndPressed = isEndDown;
 
-		boolean isEscapeDown = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS;
+		boolean isEscapeDown = UiInput.isKeyDown(windowHandle, InputConstants.KEY_ESCAPE);
 		if (isEscapeDown) {
 			this.setFocused(false);
 		}

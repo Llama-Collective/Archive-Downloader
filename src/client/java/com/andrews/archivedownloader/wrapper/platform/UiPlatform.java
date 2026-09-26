@@ -21,7 +21,11 @@ public final class UiPlatform {
             System.err.println("[ArchiveDownloader] Refusing to open URI with a disallowed scheme");
             return;
         }
-        Util.getPlatform().openUri(normalized);
+        //? >=26.3 {
+        com.mojang.blaze3d.Blaze3D.openUri(URI.create(normalized));
+        //? } else {
+        //Util.getPlatform().openUri(normalized);
+        //? }
     }
 
     private static boolean hasAllowedScheme(String value) {

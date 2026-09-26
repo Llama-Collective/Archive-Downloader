@@ -19,7 +19,7 @@ public record UiMouseEvent(
             return new UiMouseEvent(
                     event.x(),
                     event.y(),
-                    event.button(),
+                    UiInput.normalizeMouseButton(event.button()),
                     event.hasShiftDown(),
                     event.hasControlDown(),
                     event.hasAltDown());

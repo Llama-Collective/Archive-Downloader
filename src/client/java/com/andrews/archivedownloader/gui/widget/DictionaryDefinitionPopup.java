@@ -12,7 +12,8 @@ import com.andrews.archivedownloader.wrapper.gui.UiRenderable;
 import com.andrews.archivedownloader.wrapper.input.UiMouseEvent;
 import com.andrews.archivedownloader.wrapper.platform.UiPlatform;
 import com.andrews.archivedownloader.wrapper.text.UiText;
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
+import com.andrews.archivedownloader.wrapper.input.UiInput;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -171,7 +172,7 @@ public class DictionaryDefinitionPopup implements UiRenderable, UiEventListener 
         long windowHandle = client.windowHandle();
         hoveredDictionaryTooltip = null;
         if (windowHandle != 0L) {
-            boolean escapePressed = GLFW.glfwGetKey(windowHandle, GLFW.GLFW_KEY_ESCAPE) == GLFW.GLFW_PRESS;
+            boolean escapePressed = UiInput.isKeyDown(windowHandle, InputConstants.KEY_ESCAPE);
             if (escapePressed && !wasEscapePressed) {
                 onClose.run();
             }

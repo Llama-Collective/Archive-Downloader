@@ -1,5 +1,7 @@
 package com.andrews.archivedownloader.gui.widget;
 
+import com.mojang.blaze3d.platform.InputConstants;
+
 import com.andrews.archivedownloader.config.ServerDictionary;
 import com.andrews.archivedownloader.config.ServerDictionary.ServerEntry;
 import com.andrews.archivedownloader.gui.theme.UITheme;
@@ -1507,7 +1509,7 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
 
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (dictionaryPopup != null) {
-            if (keyCode == 256) { // Esc
+            if (keyCode == InputConstants.KEY_ESCAPE) { // Esc
                 closeDictionaryPopup();
                 return true;
             }
@@ -1518,10 +1520,10 @@ public class PostDetailPanel implements UiRenderable, UiEventListener {
         }
 
         if (imageController.hasMultipleImages()) {
-            if (keyCode == 263) { // Left arrow
+            if (keyCode == InputConstants.KEY_LEFT) { // Left arrow
                 imageController.previousImage();
                 return true;
-            } else if (keyCode == 262) { // Right arrow
+            } else if (keyCode == InputConstants.KEY_RIGHT) { // Right arrow
                 imageController.nextImage();
                 return true;
             }

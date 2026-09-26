@@ -1,6 +1,7 @@
 package com.andrews.archivedownloader.gui.widget;
 
-import org.lwjgl.glfw.GLFW;
+import com.mojang.blaze3d.platform.InputConstants;
+import com.andrews.archivedownloader.wrapper.input.UiInput;
 
 import com.andrews.archivedownloader.gui.theme.UITheme;
 import com.andrews.archivedownloader.util.RenderUtil;
@@ -77,7 +78,7 @@ public class ScrollBar implements UiRenderable {
     public boolean updateAndRender(UiRenderContext context, int mouseX, int mouseY, float delta, long windowHandle) {
         if (!isVisible()) return false;
 
-        boolean isMouseDown = GLFW.glfwGetMouseButton(windowHandle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        boolean isMouseDown = UiInput.isLeftMouseDown(windowHandle);
 
         double handleHeight = getHandleHeight();
         double maxHandleY = getMaxHandleY();

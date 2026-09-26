@@ -1,5 +1,7 @@
 package com.andrews.archivedownloader.gui;
 
+import com.mojang.blaze3d.platform.InputConstants;
+
 import com.andrews.archivedownloader.ArchiveDownloader;
 import net.fabricmc.loader.api.FabricLoader;
 
@@ -1343,11 +1345,11 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
             return false;
         }
         if (detailPanel != null && detailPanel.hasDictionaryPopupOpen()) {
-            detailPanel.keyPressed(256, 0, 0); // 256 = GLFW_KEY_ESCAPE
+            detailPanel.keyPressed(InputConstants.KEY_ESCAPE, 0, 0);
             return false;
         }
         if (detailPanel != null && detailPanel.hasImageViewerOpen()) {
-            detailPanel.keyPressed(256, 0, 0); // 256 = GLFW_KEY_ESCAPE
+            detailPanel.keyPressed(InputConstants.KEY_ESCAPE, 0, 0);
             return false;
         }
         if (showChannelPanel) {
@@ -1364,6 +1366,13 @@ public class ArchiveDownloaderScreen extends UiScreenBase {
         }
         return super.shouldCloseOnEsc();
     }
+
+    //? >=26.3 {
+    @Override
+    public boolean charTyped(net.minecraft.client.input.CharacterEvent event) {
+        return CustomTextField.dispatchCharacter(event.codepoint()) || super.charTyped(event);
+    }
+    //? }
 
     @Override
     public void onClose() {

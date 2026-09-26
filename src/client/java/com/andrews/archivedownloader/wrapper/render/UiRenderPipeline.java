@@ -1,7 +1,11 @@
 package com.andrews.archivedownloader.wrapper.render;
 
 //? >=1.21.6 {
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+//? >=26.3 {
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+//? } else {
+//import com.mojang.blaze3d.pipeline.RenderPipeline;
+//? }
 import net.minecraft.client.renderer.RenderPipelines;
 //? } else {
 /*import net.minecraft.client.renderer.RenderType;
